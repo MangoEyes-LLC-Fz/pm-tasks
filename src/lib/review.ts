@@ -71,8 +71,21 @@ export function draftLine(p: { client: Client | null; title: string; department:
 }
 
 /** The line inside the thread for a message noted on an existing card: which task, and its link. */
-export function followupLine(p: { client: Client | null; existingTitle: string; kind: "possible_duplicate" | "followup_change"; message?: Message; pulpLink?: string | null }): string {
+/** A Chat thread name ("spaces/X/threads/Y") as a link a person can open. */
+export const threadUrl = (threadName: string | null | undefined): string | null => {
+  const m = (threadName ?? "").match(/^spaces\/([^/]+)\/threads\/(.+)$/);
+  return m ? `https://chat.google.com/room/${m[1]}/${m[2]}` : null;
+};
+
+/** Who still has to decide on a task that is only proposed, and where: shown instead of a card link (2026-09-28). */
+export interface WaitingOn { who: string; threadUrl: string | null }
+
+export function followupLine(p: { client: Client | null; existingTitle: string; kind: "possible_duplicate" | "followup_change"; message?: Message; pulpLink?: string | null; waiting?: WaitingOn | null }): string {
   const what = p.kind === "possible_duplicate" ? "same as" : "update to";
+  if (!p.pulpLink && p.waiting) {
+    const where = p.waiting.threadUrl ? `<${p.waiting.threadUrl}|open its thread>` : "in its thread";
+    return `🔁 ${clientName(p.client)} · ${what} *${clip(p.existingTitle, 60)}* · no card yet: ${p.waiting.who} still has to tap Create card · ${where}`;
+  }
   const card = p.pulpLink ? `<${p.pulpLink}|card>` : "card";
   return `🔁 ${clientName(p.client)} · ${what} *${clip(p.existingTitle, 60)}* · noted on its ${card}`;
 }
@@ -281,7 +294,7 @@ export function askWhichClient(p: { text: string; raw: unknown }): string {
   const voice = !!(p.raw as { voice?: boolean } | null)?.voice;
   const s = suggestedClientOf(p.raw);
   const heard = voice ? `Heard: "${p.text.replace(/\s+/g, " ").slice(0, 200)}${p.text.length > 200 ? "…" : ""}"\n` : "";
-  const ask = s ? `Which client is this for? I heard "${s.heard}", is it ${s.name}? Reply "yes", or the client name.` : "Which client is this for? Reply here with the name.";
+  const ask = s ? `Which client is this for? ${voice ? "I heard" : "The message says"} "${s.heard}", is it ${s.name}? Reply "yes", or the client name.` : "Which client is this for? Reply here with the name.";
   return heard + ask;
 }
 

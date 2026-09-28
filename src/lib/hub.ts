@@ -115,6 +115,30 @@ export async function searchTasks(q: TaskQuery): Promise<TaskRow[]> {
       waitingOnClientSince: t.waiting_on_client_since ? new Date(t.waiting_on_client_since as string).toISOString() : null,
     });
   }
+  // Tasks that are only proposed (waiting for a person's tap in the feed) have no card and no task row yet, but "what is
+  // pending" must show them (2026-09-28: a repeat of a proposed task was invisible to Claude).
+  if ((status === "open" || status === "all") && out.length < limit) {
+    const props = await sql()`
+      select r.id, r.draft->>'title' as title, c.name as client, r.department, r.priority, r.created_at, r.asked_user, r.proposal->>'thread' as thread, m.channel, m.permalink, m.sender
+      from requests r left join clients c on c.id = r.client_id join messages m on m.id = r.message_id
+      where r.status = 'proposed' and not exists (select 1 from tasks t where t.request_id = r.id)
+        and (${clientId}::text is null or r.client_id = ${clientId})
+        and (${q.department ?? null}::text is null or r.department = ${q.department ?? null})
+        and (${like}::text is null or r.draft->>'title' ilike ${like} or r.summary ilike ${like} or r.quote ilike ${like})
+        and (${since}::timestamptz is null or r.created_at >= ${since}::timestamptz) and (${until}::timestamptz is null or r.created_at < ${until}::timestamptz)
+      order by r.created_at desc limit ${limit - out.length}`;
+    const { threadUrl } = await import("./review");
+    for (const r of props) {
+      const who = String(r.sender ?? "the PMs").replace(/\s*<[^>]+>\s*$/, "");
+      const url = threadUrl(r.thread as string | null);
+      out.push({
+        id: String(r.id), title: String(r.title ?? ""), client: (r.client as string | null) ?? null, department: (r.department as string | null) ?? null, priority: (r.priority as string | null) ?? null,
+        status: "Waiting for a decision", origin: "proposal", sheetTab: null, notes: `No card yet: ${who} still has to tap Create card in the feed thread${url ? ` (${url})` : ""}.`, board: null, labels: [],
+        staging: false, assignee: null, due: null, created: new Date(r.created_at as string).toISOString(), completed: null, lastMoved: null, pulpLink: null,
+        sourceChannel: (r.channel as string | null) ?? null, sourceLink: (r.permalink as string | null) ?? null, sender: (r.sender as string | null) ?? null, waitingOnClientSince: null,
+      });
+    }
+  }
   return out;
 }
 

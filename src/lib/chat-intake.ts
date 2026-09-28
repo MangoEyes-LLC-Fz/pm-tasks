@@ -95,25 +95,29 @@ export async function handleIntakeMessage(msg: ChatMessage, raw: unknown, space:
   }
 
   let m = baseMessage(msg, raw, sender, text, clients);
-  if (transcriptNote) {
-    m = { ...m, raw: { ...(m.raw as Record<string, unknown> | null ?? {}), voice: true } };
-    if (!m.clientId) {
-      // A name the recogniser may have misheard ("a bell" ~ Abela) is only a suggestion: the sender confirms it in the thread.
-      const f = fuzzyClientFromText(text, clients);
-      if (f) m = { ...m, raw: { ...(m.raw as Record<string, unknown>), suggestedClient: { id: f.client.id, name: f.client.name, heard: f.matched } } };
-    }
+  if (transcriptNote) m = { ...m, raw: { ...(m.raw as Record<string, unknown> | null ?? {}), voice: true } };
+  if (!m.clientId) {
+    // A name written or heard slightly wrong ("HC Medi Spa" ~ HC MedSpa, "a bell" ~ Abela) is only a suggestion: the sender
+    // confirms it in the thread. Until 2026-09-28 typed text got no suggestion, so "Client: HC Medi Spa" named nobody and
+    // the message took the thread's client or a hint instead, silently, under the wrong client.
+    const f = fuzzyClientFromText(text, clients);
+    if (f) m = { ...m, raw: { ...(m.raw as Record<string, unknown>), suggestedClient: { id: f.client.id, name: f.client.name, heard: f.matched } } };
   }
+  // The thread's client or a name given just before fills in only when the text names nobody, or names the same client.
+  // A text that points at another client is not clear, so the hub asks instead of deciding.
+  const suggested = suggestedClientOf(m.raw);
+  const agrees = (clientId: string) => !suggested || suggested.id === clientId;
   if (!m.clientId && msg.thread?.name) {
     // A reply inside a thread belongs to that thread's client: "also broken on tablet" under the HOH forward is HOH.
     const root = await sql()`select client_id, scope from messages where thread_ref = ${msg.thread.name} and client_id is not null order by created_at asc limit 1`;
-    if (root.length) m = { ...m, clientId: String(root[0].client_id), scope: root[0].scope as Message["scope"] };
+    if (root.length && agrees(String(root[0].client_id))) m = { ...m, clientId: String(root[0].client_id), scope: root[0].scope as Message["scope"] };
   }
   if (!m.clientId) {
     // No client in the text: use the name the same person gave in the last 15 minutes, if any.
     const h = await sql()`select value from settings where key = ${"client_hint:" + sender}`;
     const hint = h.length ? (h[0].value as { clientId: string; at: number }) : null;
     const c = hint && Date.now() - hint.at < 15 * 60 * 1000 ? clients.find((x) => x.id === hint.clientId) : null;
-    if (c) { m = { ...m, clientId: c.id, scope: c.scope }; await sql()`delete from settings where key = ${"client_hint:" + sender}`; }
+    if (c && agrees(c.id)) { m = { ...m, clientId: c.id, scope: c.scope }; await sql()`delete from settings where key = ${"client_hint:" + sender}`; }
   }
   const hit = m.clientId ? { client: clients.find((x) => x.id === m.clientId)! } : null;
   if (!m.text.trim() && !msg.attachment?.length) return;

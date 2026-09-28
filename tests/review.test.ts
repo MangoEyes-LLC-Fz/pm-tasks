@@ -44,6 +44,13 @@ describe("the card lines inside the thread", () => {
     const linked = followupLine({ client, existingTitle: "Fix Book Now button on mobile", kind: "possible_duplicate", pulpLink: "https://pulp/x" });
     expect(linked).toContain("same as");
     expect(linked).toContain("<https://pulp/x|card>");
+    const waiting = followupLine({ client, existingTitle: "Create testimonial video", kind: "possible_duplicate", pulpLink: null, waiting: { who: "<users/12>", threadUrl: "https://chat.google.com/room/A/B" } });
+    expect(waiting).toBe("🔁 *HOH* · same as *Create testimonial video* · no card yet: <users/12> still has to tap Create card · <https://chat.google.com/room/A/B|open its thread>");
+  });
+  it("turns a Chat thread name into a link", async () => {
+    const { threadUrl } = await import("../src/lib/review");
+    expect(threadUrl("spaces/AAQAjieDBM4/threads/6_7jO8jlqrU")).toBe("https://chat.google.com/room/AAQAjieDBM4/6_7jO8jlqrU");
+    expect(threadUrl(null)).toBeNull();
   });
 });
 

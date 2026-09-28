@@ -43,6 +43,9 @@ describe("fuzzy client match for voice transcripts", () => {
     ] as unknown as import("../src/lib/types").Client[];
     expect(fuzzyClientFromText("a bella needs new homepage images", clients)?.client.id).toBe("abela");
     expect(fuzzyClientFromText("for Abella please change the hero", clients)?.client.id).toBe("abela");
+    // Typed near-misses too (2026-09-28: "Client: HC Medi Spa" named nobody and took the thread's client).
+    const hc = { ...clients[0], id: "hc", name: "HC MedSpa", aliases: ["HC", "MedSpa"] };
+    expect(fuzzyClientFromText("Task name: HC Medi Spa, Social Media, Simran K", [...clients, hc])?.client.id).toBe("hc");
     expect(fuzzyClientFromText("the eye doctors footer hours", clients)?.client.id).toBe("ted");
     expect(fuzzyClientFromText("the homepage images are not good", clients)).toBeNull();
     // Short aliases never fuzz: "skin" is not Skyn, "and" is not Anil, "reported" is not TED.

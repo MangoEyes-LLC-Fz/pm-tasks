@@ -23,6 +23,14 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-28, a repeat of a proposed task, and a near-miss client name (Arun):** a Drop message "Client: HC Medi Spa"
+  named nobody (no exact alias) and took the thread's client, Leicester MediSpa; its repeat got a 🔁 line "noted on its
+  card" with no link, because the matched task was only proposed. Fixed at the root: typed text gets the same fuzzy
+  suggestion as a voice note, and the thread's client or a sender's hint never overrides a text that points at another
+  client (the hub asks). The 🔁 line for a proposed task says "no card yet: @who still has to tap Create card · open its
+  thread". Claude's search_tasks now lists proposed tasks (origin `proposal`, "Waiting for a decision"). Config to
+  clean on Arun's side: the row "Lester Medispa" (no sheet tab) duplicates Leicester MediSpa; aliases "LMS" for
+  Leicester and "HC Medi Spa" for HC MedSpa would make both exact.
 - **2026-09-23, the hub reads the whole boards (Arun):** a PM asked Claude for the HBOT videos on the Video Sprint board
   and the hub had none, because it mirrored the sheet, not the boards. Now every five minutes each board in
   `config/boards.yaml` is read in one call (`GET /boards/{id}/cards`) and every card nobody else tracks is kept as a task

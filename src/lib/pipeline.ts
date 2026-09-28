@@ -7,7 +7,7 @@ import { classify } from "./llm/classify";
 import { route } from "./route";
 import type { Message, Client } from "./types";
 import { postThreadFollowupComment } from "./slack";
-import { postReview, postText, postFeed, wordsLine, reviewMode, followupLine, feedHeadline, followupHeadline, messageThreadKey, suggestedClientOf, feedThreadKeyOf, inSharedThread, sourceLabel, senderUserOf, DEPT } from "./review";
+import { postReview, postText, postFeed, wordsLine, reviewMode, followupLine, feedHeadline, followupHeadline, messageThreadKey, suggestedClientOf, feedThreadKeyOf, inSharedThread, sourceLabel, senderUserOf, DEPT, threadUrl, type WaitingOn } from "./review";
 import { postProposal } from "./proposal";
 import { reminderFromMessage, senderName } from "./reminders";
 import { whenLabel } from "./when";
@@ -40,6 +40,15 @@ async function cardLink(taskId: string | null | undefined): Promise<string | nul
   if (!taskId) return null;
   const t = await sql()`select board_id, pulp_card_id from tasks where id = ${taskId}`;
   return t.length && t[0].pulp_card_id ? pulp.cardUrl(String(t[0].board_id ?? ""), String(t[0].pulp_card_id)) : null;
+}
+
+/** A matched task that is still only proposed: who has to tap Create card, and the thread where the card waits. */
+async function waitingOn(requestId: string): Promise<WaitingOn | null> {
+  const r = await sql()`select r.status, r.asked_user, r.proposal->>'thread' as thread, m.sender from requests r join messages m on m.id = r.message_id where r.id = ${requestId}`;
+  if (!r.length || r[0].status !== "proposed") return null;
+  const { mention } = await import("./reminders-util");
+  const who = mention({ ownerUser: (r[0].asked_user as string | null) ?? null, ownerName: senderName({ sender: String(r[0].sender ?? "the PMs") } as Message) });
+  return { who, threadUrl: threadUrl(r[0].thread as string | null) };
 }
 
 /** Store a message with a reason and nothing else (an acknowledgement, an image, a note still transcribing). */
@@ -140,7 +149,7 @@ export async function processMessage(m: Message, noiseVerdict: { skip: boolean; 
     if ((m.channel === "intake" || m.channel === "task_cmd" || m.channel === "slack" || inSharedThread(m)) && reviewMode() === "notify") {
       // The feed is the team's record: a repeat that was noted on its card gets a line too, not only the sender's thread.
       const t = await sql()`select coalesce(draft->>'title', '') as title from requests where id = ${dd.requestId}`;
-      const line = followupLine({ client, existingTitle: String(t[0]?.title || "the task"), kind: "possible_duplicate", pulpLink: await cardLink(dd.taskId) });
+      const line = followupLine({ client, existingTitle: String(t[0]?.title || "the task"), kind: "possible_duplicate", pulpLink: await cardLink(dd.taskId), waiting: await waitingOn(dd.requestId) });
       if (inSharedThread(m)) await postText(line, { threadKey: feedThreadKeyOf(m, messageId) });
       else await postFeed({ headline: followupHeadline({ client, message: m, kind: "possible_duplicate" }), detail: [line, wordsLine(m.text)].filter(Boolean).join("\n"), threadKey: messageThreadKey(messageId) });
     }
@@ -261,7 +270,7 @@ export async function processMessage(m: Message, noiseVerdict: { skip: boolean; 
       const kind = cl.same_as_kind === "duplicate" && dd.kind === "possible_duplicate" ? "possible_duplicate" : "followup_change";
       await sql()`update requests set status = 'merged', merged_into = ${target.id}, decided_by = 'system:same_thread' where id = ${requestId}`;
       await postThreadFollowupComment({ taskId: target.taskId, requestId: target.id, message: m });
-      feed.push(followupLine({ client, existingTitle: target.title, kind, pulpLink: await cardLink(target.taskId) }));
+      feed.push(followupLine({ client, existingTitle: target.title, kind, pulpLink: await cardLink(target.taskId), waiting: await waitingOn(target.id) }));
       followKind ??= kind;
       continue;
     }
