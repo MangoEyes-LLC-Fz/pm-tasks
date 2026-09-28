@@ -17,9 +17,9 @@ departments:
   # internal MangoEyes items. They go to the PMs board (decision 2026-09-18; before that the Development board was the
   # catch-all and filled with cards that were not development). Named by its exact board name ("PMs - Board", created
   # by Arun 2026-09-18); the hub adds Staging if missing.
-  # `sheet: manual`: the hub writes no sheet row for a card while it sits on this board. Dragging it out of Staging
-  # within the board is still the approval; the PM adds the row by hand when wanted, and from then on Status follows
-  # the card. Moving the card to a department board (any list) writes the row at that moment.
-  general: { board: "PMs - Board", list: "To Do", staging: "Staging", sheet: manual }
-  internal: { board: "PMs - Board", list: "To Do", staging: "Staging", sheet: manual }
+  # Rows: the same as every board since 2026-09-28 (a card is only made once a person confirms it, so nothing floods
+  # the sheet): a hub card gets its row when created, a hand-made card when it reaches To Do. `sheet: manual` (no rows
+  # while a card sits on the board) is still understood by the code, no board uses it.
+  general: { board: "PMs - Board", list: "To Do", staging: "Staging" }
+  internal: { board: "PMs - Board", list: "To Do", staging: "Staging" }
   scope:   { board: 0fac54b7-3a47-4645-9d67-87f7d24ed32a, list: "Needs scope" }

@@ -23,6 +23,14 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-28, every card that reaches To Do gets its sheet row, hand-made or not, PMs board included (Arun):**
+  now that a card is only made once a person confirms it, nothing floods the sheet, so: the PMs board writes rows like
+  every board (`sheet: manual` removed from `config/boards.yaml`, still understood by the code); a hand-made card on any
+  board gets its row from the board mirror once it sits in To Do or any later list, with the client from its label or
+  title; a card without a client label waits, marked "Waiting for a client label before its sheet row", listed in the
+  Today brief for the PMs, and gets its row on the first pass after the label appears: never skipped. Only cards
+  created from 2026-09-28 (`HANDMADE_ROWS_SINCE`); the 900-odd older hand-made cards stay as they are. After the row
+  the task is tracked as a sheet-linked card (origin `sheet`), so Status follows within two minutes.
 - **2026-09-28, a repeat of a proposed task, and a near-miss client name (Arun):** a Drop message "Client: HC Medi Spa"
   named nobody (no exact alias) and took the thread's client, Leicester MediSpa; its repeat got a 🔁 line "noted on its
   card" with no link, because the matched task was only proposed. Fixed at the root: typed text gets the same fuzzy

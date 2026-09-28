@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planMirror, clientFromCard, priorityFromLabels, ARCHIVED_NOTE, type KnownCard } from "../src/lib/board-mirror";
+import { planMirror, clientFromCard, priorityFromLabels, rowEligible, ARCHIVED_NOTE, type KnownCard } from "../src/lib/board-mirror";
 import type { BoardCard } from "../src/lib/pulp";
 import type { Client } from "../src/lib/types";
 
@@ -33,6 +33,13 @@ describe("the board mirror", () => {
     expect(clientFromCard({ title: "HBOT week 3 video", labels: ["Task Hub"] }, clients)).toBeNull();
     expect(clientFromCard({ title: "(META AD 2) HBOT", labels: ["House of Health (HoH)", "Week 84 Ads"] }, clients)).toBe("hoh");
     expect(clientFromCard({ title: "HBOT page", labels: ["HOH - House Of Health"] }, clients)).toBe("hoh");
+  });
+  it("a hand-made card earns its sheet row once it is in To Do or later, only if made since the rule", () => {
+    expect(rowEligible({ createdAt: "2026-09-28T10:00:00.000Z", listPosition: 2, todoPosition: 2 })).toBe(true);
+    expect(rowEligible({ createdAt: "2026-09-28T10:00:00.000Z", listPosition: 5, todoPosition: 2 })).toBe(true);   // In Progress, Review, Done
+    expect(rowEligible({ createdAt: "2026-09-28T10:00:00.000Z", listPosition: 1, todoPosition: 2 })).toBe(false);  // Staging, Backlog
+    expect(rowEligible({ createdAt: "2026-09-20T10:00:00.000Z", listPosition: 2, todoPosition: 2 })).toBe(false);  // older cards never
+    expect(rowEligible({ createdAt: "2026-09-28T10:00:00.000Z", listPosition: 2, todoPosition: null })).toBe(false); // a board with no To Do list
   });
   it("reads the priority from the labels", () => {
     expect(priorityFromLabels(["Task Hub", "p1"])).toBe("P1");

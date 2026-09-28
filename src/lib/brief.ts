@@ -57,6 +57,12 @@ export async function collectBrief(now = new Date()): Promise<BriefData> {
     const what = r.skip_reason === "attachment_only" ? "sent an image with no words: type what it asks for" : r.skip_reason === "client_unhappy" ? `a client sounds unhappy, reply needed: "${String(r.text)}"` : `say which client this is for: "${String(r.text)}"`;
     waiting.push({ who: staff ? String(r.sender).replace(/\s*<[^>]+>\s*$/, "") : PMS, whoUser: staff ? (r.sender_user as string | null) ?? null : null, client: "", what, since: ago(new Date(String(r.created_at)), now) });
   }
+  // A hand-made card in To Do with no client label gets no sheet row until the label is on it (2026-09-28): the PMs are told, never silently skipped.
+  const { WAITING_LABEL_NOTE } = await import("./board-mirror");
+  for (const r of await sql()`select t.title, t.created_at, t.board_id, t.pulp_card_id from tasks t where t.origin = 'board' and t.notes = ${WAITING_LABEL_NOTE} order by t.created_at desc limit 20`) {
+    const { pulp } = await import("./pulp");
+    waiting.push({ who: PMS, whoUser: null, client: "", what: `add the client label on the Pulp card "${clip(String(r.title), 60)}", then its sheet row is written`, since: ago(new Date(String(r.created_at)), now), link: r.pulp_card_id ? pulp.cardUrl(String(r.board_id), String(r.pulp_card_id)) : null });
+  }
 
   // Overdue: hub cards with a due date the hub set, open, P1 first. Never the sheet's history.
   const overdue = (await sql()`

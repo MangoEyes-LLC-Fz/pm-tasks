@@ -15,6 +15,17 @@ import type { Client } from "./types";
 
 export const MIRROR_EVERY_MIN = 5;
 export const ARCHIVED_NOTE = "Archived or deleted in Pulp";
+/** Hand-made cards created from this day get a sheet row once they reach To Do (Arun, 2026-09-28); older ones never. */
+export const HANDMADE_ROWS_SINCE = "2026-09-28T00:00:00Z";
+/** A card at To Do or later whose client is not on it yet: it waits for the label, and the brief names it. */
+export const WAITING_LABEL_NOTE = "Waiting for a client label before its sheet row";
+
+/** True when a hand-made card has earned its row: made since the rule, and in To Do or any list after it. */
+export function rowEligible(p: { createdAt: string | null; listPosition: number | null; todoPosition: number | null }): boolean {
+  if (!p.createdAt || p.createdAt < HANDMADE_ROWS_SINCE) return false;
+  if (p.todoPosition === null || p.listPosition === null) return false;
+  return p.listPosition >= p.todoPosition;
+}
 
 export interface KnownCard { id: string; pulp_card_id: string; list_id: string | null; origin: string; title: string; completed_at: string | null; notes: string | null; labels?: string[] | null; client_id?: string | null }
 export interface MirrorPlan { insert: BoardCard[]; update: Array<{ id: string; card: BoardCard; moved: boolean; fromList: string | null }>; archive: string[] }
@@ -58,7 +69,7 @@ export function planMirror(known: KnownCard[], cards: BoardCard[], capped = fals
   return plan;
 }
 
-export interface MirrorReport { at: string; boards: Array<{ board: string; name: string; department: string; cards: number; capped: boolean; paging: string | null; new: number; updated: number; archived: number }>; errors: string[]; sample: unknown; seconds: number }
+export interface MirrorReport { at: string; boards: Array<{ board: string; name: string; department: string; cards: number; capped: boolean; paging: string | null; new: number; updated: number; archived: number; rows: number; waitingLabel: number }>; errors: string[]; sample: unknown; seconds: number }
 
 /** The boards in boards.yaml, one entry per distinct board with the first department that names it. */
 async function mirroredBoards(): Promise<Array<{ id: string; department: string }>> {
@@ -93,7 +104,8 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
     try {
       const { cards, sample, capped, paging } = await pulp.boardCards(b.id);
       if (!report.sample) report.sample = sample;
-      const lists = new Map((await pulp.listsOnBoard(b.id)).map((l) => [l.id, l.name]));
+      const boardLists = await pulp.listsOnBoard(b.id);
+      const lists = new Map(boardLists.map((l) => [l.id, l.name]));
       const ids = cards.map((c) => c.id);
       const known = (await sql()`select id, pulp_card_id, list_id, origin, title, completed_at, notes, labels, client_id from tasks
         where pulp_card_id = any(${ids}::text[]) or (origin = 'board' and board_id = ${b.id})`) as unknown as KnownCard[];
@@ -130,7 +142,25 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
       const byCard = new Map(known.map((k) => [k.pulp_card_id, k]));
       const claim = cards.map((card) => ({ k: byCard.get(card.id), clientId: clientFromCard(card, clients) })).filter((x) => x.k?.origin === "board" && !x.k.client_id && x.clientId);
       if (claim.length) await sql()`update tasks t set client_id = v.cl from unnest(${claim.map((x) => x.k!.id)}::uuid[], ${claim.map((x) => x.clientId)}::text[]) as v(id, cl) where t.id = v.id and t.client_id is null`;
-      report.boards.push({ board: b.id, name: names.get(b.id) ?? b.id, department: b.department, cards: cards.length, capped, paging, new: plan.insert.length, updated: plan.update.length, archived: plan.archive.length });
+      // Rows for hand-made cards at To Do or later (2026-09-28). No client on the card yet: it waits, marked, never skipped.
+      let rows = 0, waitingLabel = 0;
+      const todo = boardLists.find((l) => normList(l.name) === "todo")?.position ?? null;
+      if (todo !== null) {
+        const { writeRowForBoardCard } = await import("./tasks");
+        const cand = await sql()`select id, list_id, client_id, created_at, notes from tasks where origin = 'board' and board_id = ${b.id} and sheet_tab is null and created_at >= ${HANDMADE_ROWS_SINCE}::timestamptz and notes is distinct from ${ARCHIVED_NOTE}`;
+        for (const t of cand) {
+          const l = boardLists.find((x) => x.id === t.list_id);
+          if (!rowEligible({ createdAt: new Date(String(t.created_at)).toISOString(), listPosition: l?.position ?? null, todoPosition: todo })) continue;
+          if (!t.client_id) {
+            waitingLabel++;
+            if (t.notes !== WAITING_LABEL_NOTE) await sql()`update tasks set notes = ${WAITING_LABEL_NOTE} where id = ${t.id}`;
+            continue;
+          }
+          try { if (await writeRowForBoardCard(String(t.id), l?.name ?? "To Do")) rows++; }
+          catch (e) { report.errors.push(`row ${String(t.id).slice(0, 8)}: ${(e as Error).message.slice(0, 120)}`); }
+        }
+      }
+      report.boards.push({ board: b.id, name: names.get(b.id) ?? b.id, department: b.department, cards: cards.length, capped, paging, new: plan.insert.length, updated: plan.update.length, archived: plan.archive.length, rows, waitingLabel });
     } catch (e) { report.errors.push(`${names.get(b.id) ?? b.id}: ${(e as Error).message.slice(0, 160)}`); }
   }
   // A mirrored card that later gets a sheet row (the PM pastes its link) or turns out to be a hub card is tracked there from then on.

@@ -20,7 +20,7 @@ describe("PMs board: what a card move means for the sheet", () => {
   it("Staging → To Do on a department board: approve and write the row", () => {
     expect(moveOutcome({ wasStaging: true, hasRow: false, manualBoard: false })).toEqual({ approve: true, writeRow: true });
   });
-  it("Staging → To Do within the PMs board: approve, no row (the PM adds it by hand)", () => {
+  it("Staging → To Do on a board marked sheet: manual (none since 2026-09-28): approve, no row", () => {
     expect(moveOutcome({ wasStaging: true, hasRow: false, manualBoard: true })).toEqual({ approve: true, writeRow: false });
   });
   it("PMs board → a department board later: the row is written then", () => {

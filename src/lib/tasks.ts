@@ -279,6 +279,33 @@ export async function writeSheetRow(taskId: string, addedBy: string): Promise<bo
 }
 
 /**
+ * A card made by hand in Pulp that reached To Do (board mirror, 2026-09-28): its row in the client's tab, then the task
+ * is tracked as a sheet-linked card (origin 'sheet'), so Status follows every move exactly as for a link a PM pasted.
+ */
+export async function writeRowForBoardCard(taskId: string, listName: string): Promise<boolean> {
+  if (!sheetsConfigured()) return false;
+  const rows = await sql()`select t.pulp_card_id, t.board_id, t.list_id, t.title, t.priority, t.assignee, t.due_at, t.department, t.created_at, t.client_id, c.name as client_name, c.sheet_tab
+    from tasks t left join clients c on c.id = t.client_id where t.id = ${taskId} and t.origin = 'board' and t.sheet_tab is null`;
+  if (!rows.length || !rows[0].client_id) return false;
+  const x = rows[0];
+  const client = { id: String(x.client_id), name: String(x.client_name ?? x.client_id), sheetTab: x.sheet_tab as string | null } as Client;
+  const tab = await findClientTab(client);
+  if (!tab) throw new Error(`no tab for ${client.name} in the PM sheet`);
+  const r = await insertTaskRow(tab, {
+    title: String(x.title), department: String(x.department ?? "general"), priority: String(x.priority ?? "P3"), assignee: String(x.assignee ?? ""),
+    pulp_link: pulp.cardUrl(String(x.board_id), String(x.pulp_card_id)), source_link: "", created: new Date(String(x.created_at)), due: x.due_at ? new Date(x.due_at as string) : null,
+    addedBy: "made by hand in Pulp", source: "Pulp",
+  });
+  // The row starts as "To Do" (the sheet's created stage) with no list remembered: the sheet-cards poll looks at the card
+  // within two minutes and writes its real list (In Progress, Done) exactly as for a pasted link.
+  const { sheetConfig } = await import("./sheets");
+  await sql()`update tasks set origin = 'sheet', sheet_key = ${"card:" + tab + ":" + String(x.pulp_card_id)}, sheet_tab = ${tab}, sheet_row = ${r.row}, sheet_status = ${sheetConfig().stage_values.created},
+    list_id = null, completed_at = null, notes = null, pulp_checked_at = null where id = ${taskId}`;
+  void listName;
+  return true;
+}
+
+/**
  * A hub card that changed board: remember the board, re-derive the department from boards.yaml (the sheet's Department
  * cell and the target list follow it) and put the hub's labels back, since Pulp labels belong to a board.
  */
