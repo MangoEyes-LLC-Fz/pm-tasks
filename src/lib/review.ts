@@ -178,7 +178,7 @@ export async function postReview(p: ReviewPost): Promise<void> {
     return;
   }
   if (p.kind === "needs_human") {
-    const rows = await sql()`select id, name from clients where scope = 'client' order by name limit 100`;
+    const rows = await sql()`select id, name from clients where scope in ('client', 'internal') order by (scope = 'internal'), name limit 100`; // MangoEyes last (2026-09-29)
     const card = gchat.needsHumanCard({
       messageId: p.messageId, clientName, why: p.why, text: p.message.text, source: sourceLabel(p.message), permalink: p.message.permalink,
       clients: rows.map((r) => ({ id: String(r.id), name: String(r.name) })),

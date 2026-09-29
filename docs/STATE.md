@@ -23,6 +23,11 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-29, MangoEyes' own tasks from the Drop and the DM (Arun asked):** internal work is a client like any other
+  (Config row `mangoeyes`, scope internal, tab "MangoEyes"): meetings already filed it, but typed text could not, since
+  the resolver skipped internal on purpose (a client saying "thanks MangoEyes" must not become internal). Now the
+  prefix "MangoEyes:" or "internal:", or the bare word as an answer, files under MangoEyes; a passing mention still
+  never does; the "which client?" dropdown lists MangoEyes last. Cards carry the label MangoEyes, rows go to its tab.
 - **2026-09-29, an .m4a voice clip failed to transcribe (seen in hub status, 25 Sep):** the length estimate treated every
   non-MP3 file as 2 KB/s Opus, so a 37-second AAC clip counted as 147 s, skipped the v2 recogniser (60 s sync limit),
   and v1 cannot decode AAC. Fixed: the estimate is by format (`estimateSeconds`). First run of the morning catch-up the

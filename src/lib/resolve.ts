@@ -51,13 +51,23 @@ export function correctName(text: string, matched: string, name: string): string
 export function resolveClientFromText(text: string, clients: Client[]): { client: Client; how: string } | null {
   const t = norm(text);
   const candidates = clients.filter((c) => c.scope === "client");
+  const named = (c: Client, p: string) => p === norm(c.name) || p === norm(c.id) || (c.aliases ?? []).some((a) => norm(a) === p);
+
+  // 0. MangoEyes' own work (scope internal) only when said outright: "MangoEyes: build the portal", or the bare word
+  //    "MangoEyes" / "internal" as an answer. A mention inside a client's text ("thanks to MangoEyes") never counts.
+  //    2026-09-29: before, no path from the Drop space or the DM could file a task under MangoEyes at all.
+  const internal = clients.find((c) => c.scope === "internal");
+  if (internal) {
+    const bare = t.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+    if (named(internal, bare) || bare === "internal" || bare === "mango eyes") return { client: internal, how: "name" };
+  }
 
   // 1. "Clinic X: ..." or "[Clinic X] ..."
   const prefix = t.match(/^\[?([^:\]\n]{2,60})[\]:]/);
   if (prefix) {
     const p = norm(prefix[1]);
-    for (const c of candidates) {
-      if (p === norm(c.name) || p === norm(c.id) || (c.aliases ?? []).some((a) => norm(a) === p)) return { client: c, how: "prefix" };
+    for (const c of [...candidates, ...(internal ? [internal] : [])]) {
+      if (named(c, p) || (c === internal && (p === "internal" || p === "mango eyes"))) return { client: c, how: "prefix" };
     }
   }
 
