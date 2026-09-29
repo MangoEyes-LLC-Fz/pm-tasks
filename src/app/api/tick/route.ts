@@ -188,6 +188,13 @@ export async function GET(req: Request) {
     report.reminders = await postDueReminders();
   } catch (e) { report.reminders = { error: (e as Error).message }; }
 
+  // 3c. The 10:00 India post: if the /api/eod cron has not run by 10:05, the loop runs it (recorded in eod_last).
+  try {
+    const { catchUpMorning } = await import("@/lib/morning");
+    const m = await catchUpMorning();
+    if (m) report.morning = m;
+  } catch (e) { report.morning = { error: (e as Error).message }; }
+
   // 4. Housekeeping, off by default: RAW_RETENTION_DAYS=90 would drop the raw envelope of old messages.
   // Text, sender, links, classifications, decisions, tasks and status history are always kept.
   const retention = Number(process.env.RAW_RETENTION_DAYS || 0);

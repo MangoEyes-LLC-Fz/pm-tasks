@@ -23,6 +23,12 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-29, the 10:00 post left no trace (Arun):** Monday 28 Sep passed with nothing in the feed, and the hub could
+  not say whether `/api/eod` had run: the route recorded nothing. Fixed at the root: the run lives in
+  `src/lib/morning.ts`, records `eod_last` (shown in hub status and health), the minute loop runs it itself from 10:05
+  India when nothing is recorded for the day, and a missed Monday's ideas are posted on the next morning
+  (`ideas_last`). What should have appeared on 28 Sep: the Today line if anything was waiting on a named person, and
+  the ideas line with one card per open idea (ideas have been collecting since 16 Sep).
 - **2026-09-28, every card that reaches To Do gets its sheet row, hand-made or not, PMs board included (Arun):**
   now that a card is only made once a person confirms it, nothing floods the sheet, so: the PMs board writes rows like
   every board (`sheet: manual` removed from `config/boards.yaml`, still understood by the code); a hand-made card on any
