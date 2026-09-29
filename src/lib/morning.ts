@@ -33,10 +33,37 @@ export function ideasDue(now: Date, lastIdeasDay: string | null): boolean {
   return now.getTime() - new Date(lastIdeasDay + "T00:00:00Z").getTime() > 7 * 86_400_000;
 }
 
-export interface MorningReport { at: string; posted: boolean; headline: string | null; waiting: number; overdue: number; ideas: { posted: number; threadKey: string | null }; errors: string[]; by: string }
+export interface MorningReport { at: string; posted: boolean; headline: string | null; waiting: number; overdue: number; ideas: { posted: number; threadKey: string | null }; expired: number; errors: string[]; by: string }
+
+export const EXPIRE_AFTER_WORKING_DAYS = 5;
+
+/**
+ * A proposal nobody answered in five working days closes itself: its card becomes one line saying so, and "create"
+ * typed in that thread (or a tap on a card that still shows) brings it back. So the morning list holds live decisions
+ * only (2026-09-29: it had grown to 63 items on the PMs).
+ */
+export async function expireProposals(now = new Date()): Promise<number> {
+  const { workingDaysAgo } = await import("./when");
+  const cutoff = workingDaysAgo(now, EXPIRE_AFTER_WORKING_DAYS);
+  const rows = await sql()`select r.id, r.draft->>'title' as title, r.proposal->>'cardName' as card, r.message_id, m.raw->>'feedThreadKey' as feed_thread
+    from requests r join messages m on m.id = r.message_id where r.status = 'proposed' and r.created_at < ${cutoff.toISOString()} order by r.created_at limit 100`;
+  let n = 0;
+  for (const r of rows) {
+    await sql()`update requests set status = 'expired', decided_by = 'system:expired', decided_at = now() where id = ${r.id} and status = 'proposed'`;
+    const line = `⌛ No card: nobody confirmed "${String(r.title)}" in ${EXPIRE_AFTER_WORKING_DAYS} working days. Still wanted? Reply "create" here and the card is made.`;
+    try {
+      const gchat = await import("./gchat");
+      if (r.card && gchat.gchatConfigured()) await gchat.updateMessageText(String(r.card), line);
+      else { const { postText, messageThreadKey } = await import("./review"); await postText(line, { threadKey: (r.feed_thread as string | null) ?? messageThreadKey(String(r.message_id)) }); }
+    } catch (e) { console.error("expire line failed", (e as Error).message); }
+    n++;
+  }
+  return n;
+}
 
 export async function runMorning(now = new Date(), opts: { by: string; forceIdeas?: boolean }): Promise<MorningReport> {
-  const report: MorningReport = { at: now.toISOString(), posted: false, headline: null, waiting: 0, overdue: 0, ideas: { posted: 0, threadKey: null }, errors: [], by: opts.by };
+  const report: MorningReport = { at: now.toISOString(), posted: false, headline: null, waiting: 0, overdue: 0, ideas: { posted: 0, threadKey: null }, expired: 0, errors: [], by: opts.by };
+  try { report.expired = await expireProposals(now); } catch (e) { report.errors.push(`expire: ${(e as Error).message.slice(0, 200)}`); }
   try {
     const data = await collectBrief(now);
     const brief = renderBrief(data);

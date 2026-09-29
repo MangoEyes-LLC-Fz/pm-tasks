@@ -28,6 +28,8 @@ Put the client first when the message does not say it: `HOH: the booking form is
 - **The proposal is the inbox.** When a message holds a task, the hub posts a card in that message's feed thread, addressed to you: the task, and four fields already filled in: Department, Assign to, Priority, Due, Remind me on. Check them, change any that is wrong, then tap **Create card**. The Pulp card appears in To Do on that board, assigned, and the sheet row is written at the same moment. No dragging, no assigning afterwards.
 - **Not a card?** Tap **No card** and nothing is made. Want to be nudged later instead? Tap **Remind me instead**: it comes back to you on the day selected in **Remind me on** (tomorrow unless you change it).
 - **You can also type in the thread:** "create", "create for Anuj", "remind me Friday", "no card".
+- **A proposal is addressed to one person:** whoever sent the message, the meeting's organiser, or the team member the client tagged in Slack. Nobody answers in 5 working days: it closes itself with one line, and "create" typed there brings it back.
+- **Meeting follow-ups** (a call to schedule, a sync, something to look into) are listed in the meeting's thread under "Follow-ups, no card": yours to remember, never a card.
 - **Cards on PMs - Board** get their sheet row like every other board (since 28 Sep).
 - **Status is automatic from then on.** Move the card, the row follows. Done fills Date Completed where the tab has that column and moves the row below the DONE divider. Moving back out of Done reopens it.
 - **Not a task?** Archive the card in Pulp. No row exists yet, nothing else to do.

@@ -30,11 +30,13 @@ export async function collectBrief(now = new Date()): Promise<BriefData> {
 
   // Proposals nobody has answered: the person who sent the message, or the PMs for a client's Slack message or a meeting.
   for (const r of await sql()`
-    select r.id, r.draft->>'title' as title, r.asked_user, r.created_at, coalesce(c.name, 'Internal') as client, m.sender, m.sender_is_staff, m.channel
+    select r.id, r.draft->>'title' as title, r.asked_user, r.proposal->>'askedName' as asked_name, r.created_at, coalesce(c.name, 'Internal') as client, m.sender, m.sender_is_staff, m.channel
     from requests r left join clients c on c.id = r.client_id join messages m on m.id = r.message_id
     where r.status = 'proposed' order by r.created_at`) {
-    const staff = !!r.sender_is_staff && r.channel !== "meet";
-    waiting.push({ who: staff ? String(r.sender).replace(/\s*<[^>]+>\s*$/, "") : PMS, whoUser: staff ? (r.asked_user as string | null) ?? null : null, client: String(r.client), what: `task to confirm: "${clip(String(r.title), 80)}"`, since: ago(new Date(String(r.created_at)), now) });
+    // The person the proposal was addressed to: the team member who sent it, the meeting's organiser, or the team
+    // member a client tagged (2026-09-29); the PMs as a group only when nobody is named.
+    const named = (r.asked_name as string | null) ?? (r.sender_is_staff ? String(r.sender).replace(/\s*<[^>]+>\s*$/, "").replace(/@.*$/, (e) => e.slice(1).split(".")[0]) : null);
+    waiting.push({ who: named || PMS, whoUser: named ? (r.asked_user as string | null) ?? null : null, client: String(r.client), what: `task to confirm: "${clip(String(r.title), 80)}"`, since: ago(new Date(String(r.created_at)), now) });
   }
   // Reminders that are due and not done.
   for (const r of await sql()`select r.owner_name, r.owner_user, r.text, r.due_at, c.name as client from reminders r left join clients c on c.id = r.client_id where r.done_at is null and r.due_at <= ${now.toISOString()} order by r.due_at`)

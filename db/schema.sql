@@ -128,6 +128,9 @@ alter table tasks add column if not exists department text;
 alter table tasks add column if not exists notes text;                                -- Comments cell
 alter table tasks add column if not exists pulp_checked_at timestamptz;               -- sheet rows with a hand-made card: last time the card was looked at
 alter table tasks add column if not exists labels text[] not null default '{}';       -- the card's labels as Pulp shows them (board mirror)
+-- 2026-09-29: the first board reads stamped every card found in Done as finished that minute; the card's last move is the truth.
+update tasks set completed_at = last_moved_at where origin in ('board', 'sheet') and sheet_key like 'board:%' and completed_at is not null and last_moved_at is not null and completed_at > last_moved_at + interval '1 hour';
+update tasks set completed_at = last_moved_at where origin = 'board' and completed_at is not null and last_moved_at is not null and completed_at > last_moved_at + interval '1 hour';
 create unique index if not exists tasks_sheet_key on tasks (sheet_key) where sheet_key is not null;
 
 -- Every list change observed in Pulp.

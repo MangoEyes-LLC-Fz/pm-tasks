@@ -178,9 +178,23 @@ export const pulp = {
     await call("POST", `/cards/${cardId}/comments`, { content: text });
   },
 
-  async getCard(cardId: string): Promise<PulpCard & { listName?: string; description?: string; attachments?: Array<{ url: string; name?: string }> }> {
-    const c = await call<{ id: string; board_id: string; list_id: string; name: string; list_name?: string; description?: string; updated_at?: string; attachments?: Array<{ url: string; name?: string }> }>("GET", `/cards/${cardId}`);
-    return { id: c.id, boardId: c.board_id, listId: c.list_id, title: c.name, listName: c.list_name, description: c.description, updatedAt: c.updated_at, attachments: c.attachments };
+  async getCard(cardId: string): Promise<PulpCard & { listName?: string; description?: string; closed?: boolean; attachments?: Array<{ url: string; name?: string }> }> {
+    const c = await call<{ id: string; board_id: string; list_id: string; name: string; list_name?: string; description?: string; closed?: boolean; updated_at?: string; attachments?: Array<{ url: string; name?: string }> }>("GET", `/cards/${cardId}`);
+    return { id: c.id, boardId: c.board_id, listId: c.list_id, title: c.name, listName: c.list_name, description: c.description, closed: c.closed, updatedAt: c.updated_at, attachments: c.attachments };
+  },
+
+  /**
+   * True when the card is gone for the team: closed (archived) in Pulp, or sitting on a list the board no longer has
+   * (an archived list keeps its cards, and a card fetched by id still names that list). The board's lists are read
+   * again once before saying so, so a list made a minute ago is not mistaken for a missing one. 2026-09-29: the team
+   * archived the Staging lists and the hub kept counting 97 cards as "waiting for a person".
+   */
+  async cardArchived(card: { boardId: string; listId: string; closed?: boolean }): Promise<boolean> {
+    if (card.closed) return true;
+    if (!card.boardId || !card.listId) return false;
+    const has = (ls: PulpList[]) => ls.some((l) => l.id === card.listId);
+    if (has(await this.listsOnBoard(card.boardId))) return false;
+    return !has(await this.listsOnBoard(card.boardId, true));
   },
 
   /**

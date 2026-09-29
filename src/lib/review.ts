@@ -5,7 +5,6 @@
  */
 import { sql } from "./db";
 import type { Client, Draft, Message, RouteDecision } from "./types";
-import * as slack from "./slack";
 import * as gchat from "./gchat";
 
 export type ReviewPost =
@@ -14,7 +13,6 @@ export type ReviewPost =
   | { kind: "possible_duplicate"; requestId: string; client: Client | null; message: Message; duplicateOf: string }
   | { kind: "followup_change"; requestId: string; client: Client | null; message: Message; duplicateOf: string };
 
-export const surface = (): "gchat" | "slack" => ((process.env.REVIEW_SURFACE ?? "gchat").toLowerCase() === "slack" ? "slack" : "gchat");
 
 /**
  * notify (default): the Staging list in Pulp is the approval step. PM Review gets one short line per task, no buttons.
@@ -103,7 +101,7 @@ export const inSharedThread = (m: { raw: unknown }): boolean => !!(m.raw as { fe
 
 /** Post a headline and return its message name so it can be edited once the counts are known. */
 export async function postHeadline(text: string, threadKey: string): Promise<string | null> {
-  if (surface() === "slack" || !gchat.gchatConfigured()) { await postText(text, { threadKey }); return null; }
+  if (!gchat.gchatConfigured()) { await postText(text, { threadKey }); return null; }
   return gchat.sendText(gchat.reviewSpace(), text, undefined, threadKey);
 }
 export async function editHeadline(name: string | null, text: string): Promise<void> {
@@ -113,7 +111,7 @@ export async function editHeadline(name: string | null, text: string): Promise<v
 /** The boxed note under a headline, on its own (postFeed posts both). */
 export async function postDetail(detail: string, threadKey: string): Promise<void> {
   if (!detail.trim()) return;
-  if (surface() === "slack" || !gchat.gchatConfigured()) { await postText(detail, { threadKey }); return; }
+  if (!gchat.gchatConfigured()) { await postText(detail, { threadKey }); return; }
   for (const [i, part] of splitDetail(detail).entries()) {
     const card = { sections: [{ widgets: [{ textParagraph: { text: toCardHtml(part) } }] }] };
     await gchat.sendCard(gchat.reviewSpace(), card, "", `detail-${threadKey}-${Date.now()}-${i}`, threadKey);
@@ -127,7 +125,7 @@ export async function postDetail(detail: string, threadKey: string): Promise<voi
 export async function postFeed(p: { headline: string; detail?: string | null; threadKey: string }): Promise<void> {
   await postText(p.headline, { threadKey: p.threadKey });
   if (!p.detail?.trim()) return;
-  if (surface() === "slack" || !gchat.gchatConfigured()) { await postText(p.detail, { threadKey: p.threadKey }); return; }
+  if (!gchat.gchatConfigured()) { await postText(p.detail, { threadKey: p.threadKey }); return; }
   // The detail is a boxed card, so even where Chat shows replies inline it reads as the note under the headline, never as a second headline.
   await postDetail(p.detail, p.threadKey);
 }
@@ -159,8 +157,7 @@ export function toCardHtml(text: string): string {
 }
 
 export async function postReview(p: ReviewPost): Promise<void> {
-  if (surface() === "slack") return slack.postReview(p);
-  if (!gchat.gchatConfigured()) { console.error("review surface gchat not configured; falling back to slack"); return slack.postReview(p); }
+  if (!gchat.gchatConfigured()) { console.error("feed space not configured; nothing posted"); return; }
 
   const space = gchat.reviewSpace();
   const clientName = p.client?.name ?? "Unknown client";
@@ -222,7 +219,7 @@ export async function rememberThread(thread: string | null, topic: ThreadTopic):
 /** Replace the "needs a person" card with a one-line outcome once someone answered it (from anywhere). */
 export async function closeNeedsHumanCard(messageId: string, text: string): Promise<void> {
   const r = await sql()`select value from settings where key = ${"gchat_card_for:" + messageId}`;
-  if (!r.length || surface() !== "gchat") return;
+  if (!r.length) return;
   // Older rows hold the card's name as a string; newer ones hold { card, head } so the headline changes too.
   const v = r[0].value as string | { card?: string | null; head?: string | null };
   const names = typeof v === "string" ? [v] : [v.head, v.card].filter((x): x is string => !!x);
@@ -237,7 +234,7 @@ export async function threadTopic(thread: string | null | undefined): Promise<Th
 }
 
 export async function postP1Ping(p: { requestId: string; client: Client | null; title: string; message: Message; reason: string | null }): Promise<void> {
-  if (surface() === "slack" || !gchat.gchatConfigured()) return slack.postP1Ping(p);
+  if (!gchat.gchatConfigured()) return;
   await gchat.sendText(gchat.reviewSpace(), `🔴 *P1* · *${p.client?.name ?? "Unknown client"}* · ${clip(p.title, 80)} · ${p.reason ?? ""} · ${sourceLabel(p.message).replace(" · ", ", ")}`);
 }
 
@@ -246,10 +243,8 @@ export async function postP1Ping(p: { requestId: string; client: Client | null; 
 export const messageThreadKey = (messageId: string) => `msg-${messageId}`;
 
 export async function postText(text: string, opts: { threadKey?: string } = {}): Promise<void> {
-  if (surface() === "slack" || !gchat.gchatConfigured()) {
-    await (await slack.web(null)).chat.postMessage({ channel: process.env.SLACK_REVIEW_CHANNEL || "#pm-review", text });
-    return;
-  }
+  // The feed is the Google Chat space, nothing else (the Slack review surface was removed 2026-09-29, never used live).
+  if (!gchat.gchatConfigured()) { console.error("feed space not configured; dropped:", text.slice(0, 120)); return; }
   await gchat.sendText(gchat.reviewSpace(), text, undefined, opts.threadKey);
 }
 

@@ -21,7 +21,7 @@ export const ExtractSchema = z.object({
       ask: z.string().describe("One distinct item in one sentence"),
       quote: z.string().describe("The sender's exact words that support it"),
       deadline: z.string().nullable().describe("Any date or timing mentioned for a task, verbatim, else null"),
-      urgent: z.boolean().describe("true when the sender says this item is urgent in any plain way: urgent, asap, today, within 24 hours, critical, site down"),
+      urgent: z.boolean().describe("true only when the sender uses an urgency word for this item: urgent, asap, immediately, emergency, critical, or says something is down or broken and blocking. 'we really need', 'important', 'please', 'today' are NOT urgent"),
       remind_at: z.string().nullable().describe("For a reminder: the timing the sender gave, verbatim ('tomorrow', 'Friday', 'next week'), else null"),
       owner: z.string().nullable().describe("A MangoEyes team member named to do it (e.g. '@Anuj can you…'), else null"),
       urls: z.array(z.string()).describe("URLs mentioned for this item"),
@@ -45,7 +45,7 @@ Quote the sender's exact words for each item. Do not invent items that are not i
 A "Subject:" line is context only. Text after "Earlier in this thread (context only, not the ask):" is the earlier conversation: use it to understand what the latest message refers to, but never take an item from it.
 When the latest message is a short reaction ("too little too late", "still not fixed"), say in summary what it reacts to, using the earlier thread.
 Set tone=unhappy when the sender is displeased, even in one short line; that matters more than finding a task.
-Set urgent=true on an item only when the sender says so in plain words (urgent, asap, today, within 24 hours, critical, down).
+Set urgent=true on an item only when the sender uses an urgency word for it: urgent, asap, immediately, emergency, critical, or something is down or broken and blocking. "We really need", "important", "please", "by today" are not urgent: a date goes in deadline, not in urgent.
 Set needs_reply=false only when nothing in the message waits for an answer (thanks, confirmation that something is done, "noted").
 Be literal and brief. No advice, no extra commentary.
 When the message is a voice-note transcript: words may be misheard. Keep to ONE item unless the speaker clearly lists separate things.

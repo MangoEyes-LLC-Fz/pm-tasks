@@ -243,10 +243,21 @@ export async function processMessage(m: Message, noiseVerdict: { skip: boolean; 
       messageId,
     });
 
+    // The same task twice in one message (the extractor split one ask, the classifier gave both the same title): one
+    // card, not two. 2026-09-28: "finalise a model for endolift training" was proposed twice and both were created.
+    const sameTitle = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const twin = proposals.find((p) => sameTitle(p.draft.title) === sameTitle(cl.title));
+    if (twin) {
+      await sql()`insert into requests (message_id, client_id, scope, ask_index, summary, quote, request_type, department, priority, confidence, confidence_reason, draft, status, kind, merged_into, decided_by, decided_at)
+        values (${messageId}, ${m.clientId}, ${m.scope}, ${i}, ${a.ask}, ${a.quote}, ${cl.request_type}, ${twin.route.department}, ${twin.route.priority}, ${cl.confidence}, 'same task as another ask in this message', ${JSON.stringify({ title: cl.title, description: cl.description, labels: [] })}::jsonb, 'merged', 'task', ${twin.requestId}, 'system:same_message', now())`;
+      continue;
+    }
+
+    // Urgency is the sender's plain word, never the tone the model read into the message (2026-09-29: "we really need" gave P1).
     const r = route({
       requestType: cl.request_type, modelDepartment: cl.department,
       priorityHint: cl.priority_hint, priorityReason: cl.priority_reason,
-      text: `${a.ask} ${a.quote}`, client, urgent: a.urgent || ex.tone === "urgent", deadline: a.deadline,
+      text: `${a.ask} ${a.quote}`, client, urgent: a.urgent, deadline: a.deadline,
     });
 
     const ins = await sql()`

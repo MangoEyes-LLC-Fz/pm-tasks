@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { verifyChatRequest, intakeSpace, reviewSpace, taskDialogBody, sendText, inboxSpaceName, rememberInboxSpace } from "@/lib/gchat";
-import { normaliseChatEvent, replyText, replyUpdateMessage, replyDialog, replyDialogOk, replyDialogError, type NormalisedEvent } from "@/lib/gchat-events";
+import { verifyChatRequest, intakeSpace, reviewSpace, sendText, inboxSpaceName, rememberInboxSpace } from "@/lib/gchat";
+import { normaliseChatEvent, replyText, replyUpdateMessage, type NormalisedEvent } from "@/lib/gchat-events";
 import { allClients, sql } from "@/lib/db";
 import { processMessage } from "@/lib/pipeline";
 import { approveRequest, dismissRequest, mergeRequest } from "@/lib/tasks";
@@ -51,12 +51,11 @@ async function handle(ev: NormalisedEvent, raw: unknown, record: (extra: Record<
   }
 
   // Clicks first: a button click event also carries the original message (e.g. "/task"), which must not reopen the form.
-  if (ev.kind === "dialog_submit") { const r = await handleDialogSubmit(ev); record({ replied: "dialog_submit" }); return r; }
   if (ev.kind === "click") { const r = await handleCardClick(ev); record({ replied: `click:${ev.invokedFunction}` }); return r; }
 
-  if (ev.kind === "command" || (ev.kind === "message" && /^\/task\b/.test(ev.message?.text ?? ""))) {
-    const clients = (await allClients()).filter((c) => c.scope === "client").map((c) => ({ id: c.id, name: c.name }));
-    return reply("dialog_open", replyDialog(f, taskDialogBody(clients)));
+  // The /task form was retired (Arun, 2026-09-11; code removed 2026-09-29): typing in the DM or the Drop space is the way.
+  if (ev.kind === "command" || ev.kind === "dialog_submit" || (ev.kind === "message" && /^\/task\b/.test(ev.message?.text ?? ""))) {
+    return reply("no_form", replyText(f, "There is no form any more: just type the ask here, with the client name first (\"HOH: …\")."));
   }
 
   if (ev.kind === "message" && ev.message) {
@@ -144,26 +143,6 @@ async function recordLastEvent(info: Record<string, unknown>) {
   } catch (e) { console.error("recordLastEvent failed", (e as Error).message); }
 }
 
-
-async function handleDialogSubmit(ev: NormalisedEvent) {
-  const get = (k: string) => ev.formInputs[k]?.stringInputs?.value?.[0]?.trim() ?? "";
-  const clientId = get("client"), request = get("request"), notes = get("notes"), priority = get("priority") || "P3", source = get("source");
-  if (!request) return NextResponse.json(replyDialogError(ev.format, "Please write what was asked."));
-  const clients = await allClients();
-  const client = clients.find((c) => c.id === clientId) ?? null;
-  const body = [request, notes ? `\nNotes from ${ev.user.displayName ?? "team"}: ${notes}` : "", source ? `\nCame via: ${source}` : "", priority === "P1" ? "\nMarked urgent (P1) by the team." : priority === "P2" ? "\nMarked important by the team." : ""].join("");
-  const m: Message = {
-    channel: "task_cmd", externalId: `gchat:${ev.user.email ?? "u"}:${Date.now()}`, teamId: null, clientId: client?.id ?? null, scope: client ? client.scope : "unknown",
-    sender: ev.user.displayName ?? ev.user.email ?? "unknown", senderIsStaff: true, sentAt: new Date(), text: body, permalink: null, threadRef: null, raw: { form: ev.formInputs },
-  };
-  waitUntil((async () => {
-    const r = await processMessage(m, { skip: false, reason: null });
-    const n = r.requestIds?.length ?? 0;
-    if (r.outcome === "review" && n) return; // the feed lines are the acknowledgement
-    await postAck({ message: m, outcome: r.outcome, detail: humanOutcome(r.outcome, r.reason) });
-  })().catch((e) => console.error("dialog submit failed", e)));
-  return NextResponse.json(replyDialogOk(ev.format, `Added for ${client?.name ?? "unknown client"}. Watch PM Review.`));
-}
 
 async function handleCardClick(ev: NormalisedEvent) {
   const fn = ev.invokedFunction, p = ev.parameters, who = ev.user.displayName ?? ev.user.email ?? "unknown", whoUser = ev.user.name ?? ev.user.email ?? null;

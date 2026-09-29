@@ -23,6 +23,19 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-29, the owner's audit, all eight points built (Arun: "cover everything in order"):** (1) meeting
+  follow-ups (calls, syncs, look-intos) are listed, never proposed; each meeting proposal is addressed to the organiser
+  (`src/lib/team.ts` maps the notes doc's owner email to a Pulp member and their Chat account from the Drop messages).
+  (2) A proposal unanswered for 5 working days expires in the morning run (`status = 'expired'`, card replaced by one
+  line, "create" revives). (3) A Slack proposal is addressed to the team member the client tagged (`proposal.askedName`).
+  (4) Board-import dates fixed (Done cards dated by their last move; one-time repair in `db/schema.sql`), overdue
+  counts only cards touched in 60 days. (5) Two asks with the same title in one message are one proposal. (6) Urgent
+  needs an urgency word, tone never sets P1, the 4-hour due lands in working hours (`workingHoursFrom`). (7) Cards on
+  an archived list, closed or deleted are archived for the hub (`pulp.cardArchived`, `markCardArchived`): the 97 old
+  Staging cards Arun's team archived stop counting, and deleted cards stop being polled. (8) Removed: the Chat `/task`
+  dialog, client board overrides, the Slack review surface (`REVIEW_SURFACE`, `SLACK_REVIEW_CHANNEL` no longer read),
+  the `scope` board entry; the scope-gate code stays inert (`gated` set nowhere). Left alone on purpose: the feed lines,
+  the Drop space, reminders, ideas, the board mirror.
 - **2026-09-29, MangoEyes' own tasks from the Drop and the DM (Arun asked):** internal work is a client like any other
   (Config row `mangoeyes`, scope internal, tab "MangoEyes"): meetings already filed it, but typed text could not, since
   the resolver skipped internal on purpose (a client saying "thanks MangoEyes" must not become internal). Now the

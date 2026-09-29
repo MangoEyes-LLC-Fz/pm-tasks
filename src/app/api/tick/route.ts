@@ -96,7 +96,7 @@ export async function GET(req: Request) {
     let synced = 0, sheetUpdates = 0, checked = 0;
     try {
       const { sheetsConfigured, updateTaskCells, sheetConfig, locateTaskRow, moveRowBelowDivider } = await import("@/lib/sheets");
-      const { moveOutcome, sheetIsManual, cardChangedBoard, writeSheetRow, approveRequest } = await import("@/lib/tasks");
+      const { moveOutcome, sheetIsManual, cardChangedBoard, writeSheetRow, approveRequest, markCardArchived } = await import("@/lib/tasks");
       const { fetchCards } = await import("@/lib/sheet-cards");
       const ours = await sql()`select t.id, t.pulp_card_id, t.list_id, t.staging, t.title, t.board_id, t.sheet_row, c.name as client_name, tab.value as tab, st.value as sheet_stage
         from tasks t left join clients c on c.id = t.client_id left join settings tab on tab.key = 'sheet_tab:' || t.id::text left join settings st on st.key = 'sheet_stage:' || t.id::text
@@ -107,10 +107,13 @@ export async function GET(req: Request) {
       for await (const { row: t, card, error } of fetchCards(ours, () => elapsed() > 95_000)) {
         if (error === "timeout") { errors.push(`stopped after ${checked} cards: out of time this minute`); break; }
         if (!card) {
-          if (/→ 404/.test(error ?? "")) { seen.push({ title: String(t.title).slice(0, 40), found: false }); continue; } // archived or deleted in Pulp: leave the sheet as it is
+          // Deleted in Pulp: finished for the hub, the sheet row is left as the PM had it (2026-09-29: it was polled forever before).
+          if (/→ 404/.test(error ?? "")) { await markCardArchived(String(t.id), "deleted"); seen.push({ title: String(t.title).slice(0, 40), found: false }); continue; }
           errors.push(`card ${String(t.title).slice(0, 40)}: ${(error ?? "").slice(0, 160)}`); continue;
         }
         checked++;
+        // On an archived list (the old Staging lists, 2026-09-29) or closed: no longer waiting for anyone.
+        if (await pulp.cardArchived(card)) { await markCardArchived(String(t.id), card.closed ? "closed" : "archived list"); seen.push({ title: String(t.title).slice(0, 40), archived: true }); continue; }
         const listName = card.listName ?? (await pulp.listsOnBoard(card.boardId)).find((l) => l.id === card.listId)?.name ?? card.listId;
         const done = isDoneList(listName);
         const boardChanged = !!card.boardId && card.boardId !== t.board_id;

@@ -141,16 +141,15 @@ export function cardDescription(p: { draft: Draft; quote: string; channel: strin
  */
 export async function createFromProposal(p: { requestId: string; department: string; assignee: string | null; priority: string; dueAt: Date | null; who: string }): Promise<{ taskId: string; cardId: string | null; link: string }> {
   const rows = await sql()`
-    select r.id, r.client_id, r.quote, r.draft, c.name as client_name, c.boards, m.channel, m.sender, m.permalink
+    select r.id, r.client_id, r.quote, r.draft, c.name as client_name, m.channel, m.sender, m.permalink
     from requests r left join clients c on c.id = r.client_id join messages m on m.id = r.message_id where r.id = ${p.requestId}`;
   if (!rows.length) throw new Error("request not found");
   const x = rows[0];
   const draft = (x.draft ?? {}) as Draft;
-  const own = (x.boards ?? {}) as Record<string, { board?: string; list?: string; staging?: string }>;
   const def = boardsConfig().departments[p.department];
-  const boardRef = own[p.department]?.board || def?.board;
+  const boardRef = def?.board;
   if (!boardRef) throw new Error(`no board for department "${p.department}"`);
-  const listName = own[p.department]?.list || def?.list || "To Do";
+  const listName = def?.list || "To Do";
   const rules = x.client_id ? await rulesFor(String(x.client_id)) : [];
   const description = cardDescription({ draft, quote: String(x.quote ?? ""), channel: String(x.channel), sender: String(x.sender ?? ""), permalink: (x.permalink as string | null) ?? null, requestId: p.requestId, rules });
   const labels = [HUB_LABEL, ...(x.client_name ? [String(x.client_name)] : []), ...(draft.labels ?? []).filter((l) => !/^P[123]$/.test(l)), p.priority];
@@ -179,19 +178,18 @@ export async function createFromProposal(p: { requestId: string; department: str
 export async function createCardForTask(taskId: string): Promise<boolean> {
   if (!pulp.configured()) return false;
   const rows = await sql()`
-    select t.id, t.pulp_card_id, t.board_id, t.title, t.priority, t.assignee, t.due_at, r.department, r.request_type, r.quote, r.draft, c.name as client_name, c.boards, m.channel, m.sender, m.permalink
+    select t.id, t.pulp_card_id, t.board_id, t.title, t.priority, t.assignee, t.due_at, r.department, r.request_type, r.quote, r.draft, c.name as client_name, m.channel, m.sender, m.permalink
     from tasks t join requests r on r.id = t.request_id left join clients c on c.id = t.client_id left join messages m on m.id = r.message_id
     where t.id = ${taskId} and t.pulp_card_id is null and t.origin = 'hub'`;
   if (!rows.length) return false;
   const x = rows[0];
   const draft = (x.draft ?? {}) as { description?: string; labels?: string[] };
-  const own = (x.boards ?? {}) as Record<string, { board?: string; list?: string; staging?: string }>;
   const gated = !!ruleFor(String(x.request_type ?? ""))?.gated;
   const dep = gated ? "scope" : String(x.department);
-  const boardRef = own[dep]?.board || boardsConfig().departments[dep]?.board || own[String(x.department)]?.board || boardsConfig().departments[String(x.department)]?.board || String(x.board_id ?? "");
+  const boardRef = boardsConfig().departments[dep]?.board || boardsConfig().departments[String(x.department)]?.board || String(x.board_id ?? "");
   const boardId = await pulp.resolveBoardId(boardRef);
   if (!boardId) throw new Error(`board "${boardRef}" not found for ${dep}`);
-  const holdList = gated ? own.scope?.list || boardsConfig().departments.scope?.list || "Needs scope" : own[dep]?.staging || boardsConfig().departments[dep]?.staging || "Staging";
+  const holdList = gated ? boardsConfig().departments.scope?.list || "Needs scope" : boardsConfig().departments[dep]?.staging || "Staging";
   const listId = await pulp.ensureList(boardId, holdList);
   const description = [draft.description ?? "", "", `Original (${x.channel}, ${x.sender}):`, `> ${x.quote ?? ""}`, x.permalink ? `Source: ${x.permalink}` : "", `(card created on retry)`].filter((l) => l !== "").join("\n");
   const card = await pulp.createCard({
@@ -208,7 +206,7 @@ export async function createCardForTask(taskId: string): Promise<boolean> {
  */
 export async function approveRequest(requestId: string, decidedBy: string, opts: { moveCard?: boolean } = {}): Promise<void> {
   const rows = await sql()`
-    select t.id as task_id, t.pulp_card_id, t.board_id, coalesce(t.department, r.department) as department, r.decided_by, c.boards
+    select t.id as task_id, t.pulp_card_id, t.board_id, coalesce(t.department, r.department) as department, r.decided_by
     from requests r
     left join tasks t on t.request_id = r.id
     left join clients c on c.id = r.client_id
@@ -221,9 +219,8 @@ export async function approveRequest(requestId: string, decidedBy: string, opts:
   await sql()`update requests set status = 'approved', decided_by = ${approver}, decided_at = coalesce(decided_at, now()) where id = ${requestId}`;
 
   if (opts.moveCard !== false && x.task_id && x.pulp_card_id && pulp.configured()) {
-    // The client's own board override, else the department's default list from boards.yaml.
-    const boards = (x.boards ?? {}) as Client["boards"];
-    const target = boards[x.department as string] ?? boardsConfig().departments[x.department as string];
+    // The department's default list from boards.yaml (client board overrides were removed 2026-09-29, never used).
+    const target = boardsConfig().departments[x.department as string];
     const listId = target ? await pulp.ensureList(x.board_id as string, target.list) : null;
     if (listId) {
       await pulp.moveCard(x.pulp_card_id as string, listId);
@@ -276,6 +273,13 @@ export async function writeSheetRow(taskId: string, addedBy: string): Promise<bo
     console.error("sheet append failed, queued:", (e as Error).message);
     return false;
   }
+}
+
+/** A hub or sheet-linked card that is gone in Pulp (archived list, closed, deleted): finished for the hub, its request closed, nothing written to the sheet. */
+export async function markCardArchived(taskId: string, how: "archived list" | "closed" | "deleted"): Promise<void> {
+  const { ARCHIVED_NOTE } = await import("./board-mirror");
+  await sql()`update tasks set completed_at = coalesce(completed_at, now()), staging = false, notes = ${ARCHIVED_NOTE}, last_moved_at = now() where id = ${taskId}`;
+  await sql()`update requests r set status = 'dismissed', decided_by = ${"pulp:" + how}, decided_at = now() from tasks t where t.request_id = r.id and t.id = ${taskId} and r.status in ('pending_review', 'needs_scope', 'approved', 'proposed')`;
 }
 
 /**

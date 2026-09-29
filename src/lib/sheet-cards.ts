@@ -74,10 +74,13 @@ export async function pollSheetCards(limit = 60, outOfTime: () => boolean = () =
   for await (const { row: t, card, error } of fetchCards(rows, outOfTime)) {
     if (error === "timeout") { report.errors.push(`stopped after ${report.checked} cards: out of time this minute`); break; }
     if (!card) {
-      if (!/→ 404/.test(error ?? "")) report.errors.push(`${String(t.title).slice(0, 40)}: ${(error ?? "").slice(0, 120)}`);
-      continue; // 404: archived or deleted in Pulp; the row stays as the PM left it
+      if (!/→ 404/.test(error ?? "")) { report.errors.push(`${String(t.title).slice(0, 40)}: ${(error ?? "").slice(0, 120)}`); continue; }
+      const { markCardArchived } = await import("./tasks");
+      await markCardArchived(String(t.id), "deleted"); // the row stays as the PM left it; the hub stops looking
+      continue;
     }
     report.checked++;
+    if (await pulp.cardArchived(card)) { const { markCardArchived } = await import("./tasks"); await markCardArchived(String(t.id), card.closed ? "closed" : "archived list"); continue; }
     // A row mirrored from a link with no Task text: give it the card's title, in the hub and in the sheet's blank cell.
     if (isUntitled(String(t.title)) && card.title.trim()) {
       try {

@@ -186,12 +186,21 @@ export async function processNoteDoc(doc: NoteDoc): Promise<string> {
   const ideaLines: string[] = [];
   const decidedLines: string[] = [];
   const clientTodo: string[] = [];
+  const followUps: string[] = [];
   for (const it of sorted.items) {
     const c = clientByName(it.client, clients) ?? meetingClient ?? (it.kind === "action" ? internal : null);
     if (it.kind === "action" && it.side === "client" && c?.scope !== "internal") {
       // The client's own homework (sign, grant access, send photos) is not the team's task: listed in the thread, no card.
       await sql()`insert into meeting_items (meeting_id, kind, client_id, text, owner, due_text, outcome) values (${meetingId}, 'action', ${c?.id ?? null}, ${it.text}, ${it.owner}, ${it.due}, 'client')`;
       if (clientTodo.length < 8) clientTodo.push(`• ${it.text}${it.owner ? ` (${it.owner})` : ""}${it.due ? ` — ${it.due}` : ""}`);
+      continue;
+    }
+    if (it.kind === "action" && it.work === false) {
+      // Coordination and follow-ups (a call to schedule, a sync, something to look into) are the team's to remember,
+      // not cards: listed in the thread, on record for Claude, never proposed (2026-09-29: they were most of the
+      // proposals nobody answered).
+      await sql()`insert into meeting_items (meeting_id, kind, client_id, text, owner, due_text, outcome) values (${meetingId}, 'action', ${c?.id ?? null}, ${it.text}, ${it.owner}, ${it.due}, 'noted')`;
+      followUps.push(`• *${c?.name ?? "MangoEyes"}* · ${it.text}${it.owner ? ` (${it.owner})` : ""}${it.due ? ` — ${it.due}` : ""}`);
       continue;
     }
     if (it.kind === "action") {
@@ -227,7 +236,8 @@ export async function processNoteDoc(doc: NoteDoc): Promise<string> {
   const summary = (sorted.summary ?? []).slice(0, 5).map((x) => `• ${x}`).join("\n");
   const todoNote = groups.size ? `*To do*\nThe team's action items follow below, one card each. Tap Create card, Remind me instead or No card on each.` : "";
   const raised = [...ideaLines.map((l) => `${l} · up for a decision on Monday`), ...clientTodo.map((l) => `${l} · the client's to-do, no card`)];
-  await postDetail([summary ? `*In short*\n${summary}` : "", decidedLines.length ? `*Decided*\n${decidedLines.join("\n")}` : "", todoNote, raised.length ? `*Also raised*\n${raised.join("\n")}` : ""].filter(Boolean).join("\n\n"), threadKey);
+  const followNote = followUps.length ? `*Follow-ups, no card* (calls, syncs, things to look into: on record, yours to remember)\n${followUps.join("\n")}` : "";
+  await postDetail([summary ? `*In short*\n${summary}` : "", decidedLines.length ? `*Decided*\n${decidedLines.join("\n")}` : "", todoNote, followNote, raised.length ? `*Also raised*\n${raised.join("\n")}` : ""].filter(Boolean).join("\n\n"), threadKey);
 
   // Five action items per job: each ask costs a model call and a card, and a job must finish well inside a minute.
   let jobs = 0;
@@ -319,10 +329,15 @@ export async function refreshMeetingHeadline(meetingId: string): Promise<void> {
 export async function runMeetGroup(p: { meetingId: string; docId: string; docUrl: string; title: string; owner: string | null; heldAt: string; clientId: string | null; text: string; threadKey: string; part?: number; items?: string[] }): Promise<string> {
   const clients = await allClients();
   const client = p.clientId ? clients.find((c) => c.id === p.clientId) ?? null : null;
+  // The organiser owns the meeting's to-dos: each proposal is addressed to them by name and Chat account, not to
+  // "the PMs" (2026-09-29). The owner is the notes doc's owner, an email; the team record turns it into a person.
+  const { teamMember, chatUserFor } = await import("./team");
+  const organiser = await teamMember(p.owner);
+  const senderUser = organiser ? await chatUserFor(organiser.name) : null;
   const m: Message = {
     channel: "meet", externalId: `meet:${p.docId}:${client?.id ?? "unassigned"}${p.part ? `:${p.part}` : ""}`, teamId: null, clientId: client?.id ?? null, scope: client ? client.scope : "unknown",
-    sender: p.owner ?? "meeting", senderIsStaff: true, sentAt: new Date(p.heldAt), text: `Action items from the meeting "${p.title}":\n${p.text}`, permalink: p.docUrl, threadRef: null,
-    raw: { meeting: { id: p.meetingId, driveFileId: p.docId, title: p.title }, feedThreadKey: p.threadKey },
+    sender: organiser?.name ?? p.owner ?? "meeting", senderIsStaff: true, sentAt: new Date(p.heldAt), text: `Action items from the meeting "${p.title}":\n${p.text}`, permalink: p.docUrl, threadRef: null,
+    raw: { meeting: { id: p.meetingId, driveFileId: p.docId, title: p.title }, feedThreadKey: p.threadKey, senderUser },
   };
   const r = await processMessage(m, { skip: false, reason: null }, { rerun: true });
   const made = r.outcome === "review" ? (r.requestIds?.length ?? 0) : 0;

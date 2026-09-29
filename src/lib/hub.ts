@@ -94,7 +94,7 @@ export async function searchTasks(q: TaskQuery): Promise<TaskRow[]> {
       and case ${status}
             when 'open' then t.completed_at is null
             when 'done' then t.completed_at is not null
-            when 'overdue' then t.completed_at is null and t.due_at < now() and t.staging = false
+            when 'overdue' then t.completed_at is null and t.due_at < now() and t.staging = false and coalesce(t.last_moved_at, t.created_at) > now() - interval '60 days'
             when 'waiting' then t.completed_at is null and t.waiting_on_client_since is not null
             when 'staging' then t.staging = true and t.completed_at is null
             else true end
@@ -172,7 +172,7 @@ export async function clientSummary(ref: string): Promise<Record<string, unknown
   const counts = (await sql()`
     select count(*) filter (where completed_at is null and staging = false)::int as open,
            count(*) filter (where staging = true and completed_at is null)::int as staging,
-           count(*) filter (where completed_at is null and due_at < now() and staging = false)::int as overdue,
+           count(*) filter (where completed_at is null and due_at < now() and staging = false and coalesce(last_moved_at, created_at) > now() - interval '60 days')::int as overdue,
            count(*) filter (where completed_at is null and waiting_on_client_since is not null)::int as waiting_on_client,
            count(*) filter (where completed_at > now() - interval '30 days')::int as done_last_30_days,
            count(*) filter (where created_at > now() - interval '30 days')::int as created_last_30_days
@@ -224,6 +224,7 @@ export async function dailySummaryText(days = 1, range: Window = {}): Promise<st
   const overdue = await sql()`
     select coalesce(c.name,'Internal') as client, left(t.id::text,8) as id, t.title, t.priority, to_char(t.due_at,'Dy DD Mon') as due
     from tasks t left join clients c on c.id = t.client_id where t.completed_at is null and t.due_at < now() and t.staging = false
+      and coalesce(t.last_moved_at, t.created_at) > now() - interval '60 days' -- a card nobody has touched in two months is not "overdue", it is parked (2026-09-29)
     order by case when t.priority = 'P1' then 0 when t.priority = 'P2' then 1 else 2 end, t.due_at desc`;
   const staging = await sql()`
     select coalesce(c.name,'Unknown') as client, t.title, to_char(t.created_at,'Dy DD Mon') as since, (r.status = 'needs_scope') as needs_scope

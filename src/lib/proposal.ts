@@ -58,19 +58,31 @@ export function matchPerson(owner: string | null | undefined, people: string[]):
 }
 
 /** The hub's own defaults for a task (assignee, due, department, priority), stored on the request so a decision, a typed reply or a repost falls back to them. */
-export async function storeProposal(p: { requestId: string; message: Message; route: RouteDecision; owner: string | null }): Promise<{ people: string[]; assignee: string | null; dues: Array<{ value: string; text: string }>; due: string }> {
+/**
+ * Who decides on a proposal: the team member who sent the message, or, for a client's message, the team member the
+ * client tagged ("@Anuj Laddha please …"; 2026-09-29), else nobody named (the PMs as a group). With the Chat account
+ * when the hub has seen one, so the @mention notifies.
+ */
+export async function askedPerson(message: Message): Promise<{ name: string | null; user: string | null }> {
+  if (message.senderIsStaff) return { name: message.sender.replace(/\s*<[^>]+>\s*$/, ""), user: senderUserOf(message) };
+  const { taggedTeamMember, chatUserFor } = await import("./team");
+  const tagged = await taggedTeamMember(message);
+  return tagged ? { name: tagged.name, user: await chatUserFor(tagged.name) } : { name: null, user: null };
+}
+
+export async function storeProposal(p: { requestId: string; message: Message; route: RouteDecision; owner: string | null }): Promise<{ people: string[]; assignee: string | null; dues: Array<{ value: string; text: string }>; due: string; asked: { name: string | null; user: string | null } }> {
   const people = await peopleOptions();
   const assignee = matchPerson(p.owner, people);
   const { dues, due } = dueOptions(p.route.dueAt);
-  const askedUser = senderUserOf(p.message);
-  await sql()`update requests set proposal = ${JSON.stringify({ assignee, dueAt: due, department: p.route.department, priority: p.route.priority })}::jsonb, asked_user = ${askedUser} where id = ${p.requestId}`;
-  return { people, assignee, dues, due };
+  const asked = await askedPerson(p.message);
+  await sql()`update requests set proposal = ${JSON.stringify({ assignee, dueAt: due, department: p.route.department, priority: p.route.priority, askedName: asked.name })}::jsonb, asked_user = ${asked.user} where id = ${p.requestId}`;
+  return { people, assignee, dues, due, asked };
 }
 
 export async function postProposal(p: { requestId: string; client: Client | null; message: Message; messageId: string; draft: Draft; route: RouteDecision; owner: string | null; quote: string }): Promise<void> {
-  const { people, assignee, dues, due } = await storeProposal(p);
-  const askedUser = senderUserOf(p.message);
-  const askedName = p.message.senderIsStaff ? p.message.sender.replace(/\s*<[^>]+>\s*$/, "") : null;
+  const { people, assignee, dues, due, asked } = await storeProposal(p);
+  const askedUser = asked.user;
+  const askedName = asked.name;
   const rules = p.client ? await rulesFor(p.client.id) : [];
   const threadKey = feedThreadKeyOf(p.message, p.messageId);
   if (!gchat.gchatConfigured()) {
@@ -94,7 +106,7 @@ export async function decideProposal(kind: "create" | "remind" | "no", requestId
   const r = (await sql()`select r.id, r.status, r.client_id, r.message_id, r.draft, r.proposal, r.department, r.priority, c.name as client_name, m.raw->>'feedThreadKey' as feed_thread
     from requests r left join clients c on c.id = r.client_id join messages m on m.id = r.message_id where r.id = ${requestId}`)[0];
   if (!r) return "That proposal no longer exists.";
-  if (r.status !== "proposed") return `Already decided: ${String(r.status)}.`;
+  if (r.status !== "proposed" && r.status !== "expired") return `Already decided: ${String(r.status)}.`;
   const prop = (r.proposal ?? {}) as { assignee?: string | null; dueAt?: string; department?: string; priority?: Priority };
   const draft = (r.draft ?? {}) as Draft;
   if (kind === "no") {

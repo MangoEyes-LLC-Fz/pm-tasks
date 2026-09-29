@@ -22,4 +22,3 @@ departments:
   # while a card sits on the board) is still understood by the code, no board uses it.
   general: { board: "PMs - Board", list: "To Do", staging: "Staging" }
   internal: { board: "PMs - Board", list: "To Do", staging: "Staging" }
-  scope:   { board: 0fac54b7-3a47-4645-9d67-87f7d24ed32a, list: "Needs scope" }

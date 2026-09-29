@@ -1,5 +1,5 @@
 import { routing, boards as boardDefaults } from "./config";
-import { parseWhen } from "./when";
+import { parseWhen, workingHoursFrom } from "./when";
 import type { Client, Priority, RouteDecision, RequestTypeRule } from "./types";
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -70,7 +70,7 @@ export function route(opts: {
   if (!noCard) {
     const said = parseWhen(opts.deadline, now);
     if (said && said > now) dueAt = said;
-    else if (priority === "P1") dueAt = new Date(now.getTime() + routing().p1_sla_hours * 3600 * 1000);
+    else if (priority === "P1") dueAt = workingHoursFrom(now, routing().p1_sla_hours); // four working hours, never a Sunday night (2026-09-29)
     else if (rule?.sla_days) dueAt = addWorkingDays(now, rule.sla_days);
     else dueAt = addWorkingDays(now, priority === "P2" ? 3 : 5);
   }

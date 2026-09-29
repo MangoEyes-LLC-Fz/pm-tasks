@@ -96,6 +96,40 @@ export function whenLabel(d: Date, withTime = false): string {
 }
 
 /** True during the team's morning minute (10:00 India), when daily repeats go out. */
+/** Working hours in India: Monday to Friday, 09:00 to 19:00. */
+export const WORK_START = 9, WORK_END = 19;
+export function inWorkingHours(d: Date): boolean {
+  const p = teamParts(d);
+  return p.weekday >= 1 && p.weekday <= 5 && p.hour >= WORK_START && p.hour < WORK_END;
+}
+/** `hours` of working time from now: within the day when it fits, else that many hours into the next working day (2026-09-29: a P1 raised on a Sunday night was overdue before anyone woke up). */
+export function workingHoursFrom(now: Date, hours: number): Date {
+  const direct = new Date(now.getTime() + hours * 3_600_000);
+  if (inWorkingHours(now) && inWorkingHours(direct)) return direct;
+  let d = new Date(now);
+  for (let guard = 0; guard < 10; guard++) {
+    const p = teamParts(d);
+    const isWorkday = p.weekday >= 1 && p.weekday <= 5;
+    if (isWorkday && p.hour < WORK_START) return teamTime(p.y, p.m, p.day, WORK_START + hours, 0);
+    d = new Date(d.getTime() + 24 * 3_600_000);
+    const q = teamParts(d);
+    if (q.weekday >= 1 && q.weekday <= 5) return teamTime(q.y, q.m, q.day, WORK_START + hours, 0);
+  }
+  return direct;
+}
+
+/** `days` working days back from now, same time of day. */
+export function workingDaysAgo(now: Date, days: number): Date {
+  const d = new Date(now);
+  let left = days;
+  while (left > 0) {
+    d.setTime(d.getTime() - 24 * 3_600_000);
+    const wd = teamParts(d).weekday;
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  return d;
+}
+
 export function isMorningMinute(now = new Date()): boolean {
   const p = teamParts(now);
   return p.hour === MORNING_HOUR && p.minute === 0;
