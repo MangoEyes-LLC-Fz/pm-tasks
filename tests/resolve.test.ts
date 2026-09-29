@@ -33,11 +33,12 @@ describe("resolve client from pasted text", () => {
   it("never resolves to internal from a passing mention, only when said outright (2026-09-29)", () => {
     expect(resolveClientFromText("MangoEyes internal: idea for the newsletter", clients)?.client.id).toBe("internal"); // an explicit prefix
     expect(resolveClientFromText("thanks to the MangoEyes team for the new site", clients)).toBeNull();
-    const internal = { ...clients[0], id: "mangoeyes", name: "MangoEyes", scope: "internal" as const, aliases: [] };
-    expect(resolveClientFromText("MangoEyes: build the Zenoti access portal", [...clients, internal])?.client.id).toBe("mangoeyes");
-    expect(resolveClientFromText("internal: update the SOP sheet", [...clients, internal])?.client.id).toBe("mangoeyes");
-    expect(resolveClientFromText("MangoEyes", [...clients, internal])?.client.id).toBe("mangoeyes");
-    expect(resolveClientFromText("thanks to the MangoEyes team for the new site", [...clients, internal])).toBeNull();
+    // With one internal client named plainly, as in the real Config:
+    const real = [...clients.filter((x) => x.scope === "client"), c("mangoeyes", "MangoEyes", { scope: "internal" })];
+    expect(resolveClientFromText("MangoEyes: build the Zenoti access portal", real)?.client.id).toBe("mangoeyes");
+    expect(resolveClientFromText("internal: update the SOP sheet", real)?.client.id).toBe("mangoeyes");
+    expect(resolveClientFromText("MangoEyes", real)?.client.id).toBe("mangoeyes");
+    expect(resolveClientFromText("thanks to the MangoEyes team for the new site", real)).toBeNull();
   });
   it("strips the prefix", () => expect(stripClientPrefix("Clinic X: booking button broken", clients[0])).toBe("booking button broken"));
 });
