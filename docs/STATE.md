@@ -23,6 +23,11 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-29, an .m4a voice clip failed to transcribe (seen in hub status, 25 Sep):** the length estimate treated every
+  non-MP3 file as 2 KB/s Opus, so a 37-second AAC clip counted as 147 s, skipped the v2 recogniser (60 s sync limit),
+  and v1 cannot decode AAC. Fixed: the estimate is by format (`estimateSeconds`). First run of the morning catch-up the
+  same day: brief posted by the minute loop at 16:28 India with 69 items waiting (63 on the PMs, mostly meeting
+  to-dos nobody confirmed), 9 ideas posted with cards; 8 hand-made video cards wait for a client label.
 - **2026-09-29, the 10:00 post left no trace (Arun):** Monday 28 Sep passed with nothing in the feed, and the hub could
   not say whether `/api/eod` had run: the route recorded nothing. Fixed at the root: the run lives in
   `src/lib/morning.ts`, records `eod_last` (shown in hub status and health), the minute loop runs it itself from 10:05

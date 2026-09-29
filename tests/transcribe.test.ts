@@ -22,3 +22,13 @@ describe("opus sample rate", () => {
     expect(opusInputRate(Buffer.from("RIFF"))).toBeNull();
   });
 });
+
+describe("audio length from size, by format", () => {
+  it("counts an .m4a clip at AAC rates so a short clip goes to the v2 recogniser (25 Sep: a 37 s clip was read as 147 s of Opus)", async () => {
+    const { estimateSeconds } = await import("../src/lib/transcribe");
+    const buf = Buffer.alloc(293_268);
+    expect(Math.round(estimateSeconds(buf, "audio/mp4", "Audio clip (2026-09-25 09:31:05).m4a"))).toBe(37);
+    expect(Math.round(estimateSeconds(buf, "application/octet-stream", "PTT-20260925-WA0004"))).toBe(147);
+    expect(Math.round(estimateSeconds(buf, "audio/mpeg", "note.mp3"))).toBe(18);
+  });
+});

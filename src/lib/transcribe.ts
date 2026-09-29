@@ -53,6 +53,20 @@ async function recognizeV2(buf: Buffer, model: string, hints: string[] = [], loc
   return (data.results ?? []).map((r) => r.alternatives?.[0]?.transcript ?? "").join(" ").trim();
 }
 
+/**
+ * Rough length from the size, by format: WhatsApp Opus ~2 KB/s, AAC in an .m4a/.mp4 clip (iPhone, Chat's own
+ * recorder) ~8 KB/s, MP3 ~16 KB/s, WAV ~32 KB/s. Decides whether the 60-second v2 call is tried first. 2026-09-29: an
+ * .m4a clip of 37 s was counted as 147 s of Opus, skipped v2, and v1 cannot decode AAC at all ("bad encoding").
+ */
+export function estimateSeconds(buf: Buffer, contentType: string, fileName = ""): number {
+  const ct = contentType.toLowerCase(), fn = fileName.toLowerCase();
+  const perSecond = /(mp3|mpeg)/.test(ct) || fn.endsWith(".mp3") ? 16_000
+    : /(mp4|m4a|aac|x-m4a)/.test(ct) || /\.(m4a|mp4|aac)$/.test(fn) ? 8_000
+    : /wav/.test(ct) || fn.endsWith(".wav") ? 32_000
+    : 2_000;
+  return buf.length / perSecond;
+}
+
 /** WhatsApp voice notes arrive as "PTT-20260911-WA0014" (no extension) or "AUD-…"; Chat often labels them octet-stream. */
 const WHATSAPP_VOICE = /^(PTT|AUD)-\d{8}-WA\d+/i;
 export const isAudio = (contentType: string, fileName = "") =>
@@ -112,7 +126,7 @@ export async function transcribeAudio(buf: Buffer, contentType: string, fileName
     });
     return (res.data.results ?? []).map((r) => r.alternatives?.[0]?.transcript ?? "").join(" ").trim();
   };
-  const seconds = buf.length / (/(mp3|mpeg)/i.test(contentType) ? 16_000 : 2_000);
+  const seconds = estimateSeconds(buf, contentType, fileName);
   // First choice: v2 with Chirp, then v2's long model. Both decode the file themselves. v1 below is the fallback.
   diag.seconds = Math.round(seconds);
   if (seconds <= 58 && buf.length < 9_000_000 && process.env.SPEECH_V2 !== "off") {
