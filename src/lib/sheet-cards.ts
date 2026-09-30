@@ -67,7 +67,7 @@ export async function pollSheetCards(limit = 60, outOfTime: () => boolean = () =
   // Each card is looked at every two minutes (2026-09-18: was 40 a minute, one request at a time).
   const rows = await sql()`
     select id, pulp_card_id, board_id, list_id, title, sheet_tab, sheet_row, sheet_status
-    from tasks where origin = 'sheet' and pulp_card_id is not null and sheet_tab is not null and completed_at is null
+    from tasks where origin = 'sheet' and pulp_card_id is not null and sheet_tab is not null and completed_at is null and notes is distinct from 'Archived or deleted in Pulp'
       and (pulp_checked_at is null or pulp_checked_at < now() - interval '2 minutes')
     order by pulp_checked_at asc nulls first, created_at desc limit ${limit}`;
   if (rows.length) await sql()`update tasks set pulp_checked_at = now() where id = any(${rows.map((t) => String(t.id))}::uuid[])`;

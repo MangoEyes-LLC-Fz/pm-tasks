@@ -24,6 +24,20 @@ const card = (l: string | null | undefined) => (l ? ` · <${l}|card>` : "");
 const ago = (d: Date, now = new Date()) => { const h = (now.getTime() - d.getTime()) / 3_600_000; return h < 1 ? "just now" : h < 24 ? `${Math.round(h)} h ago` : `since ${whenLabel(d)}`; };
 const PMS = "PMs";
 
+/** "Heena Ganotra <heena@…>" or "heena@mangoeyesagency.com" → the person's name as the team knows it (older meeting requests carry the organiser's email). */
+async function personName(sender: string): Promise<string> {
+  const plain = sender.replace(/\s*<[^>]+>\s*$/, "").trim();
+  if (!plain.includes("@")) return plain;
+  const { teamMember } = await import("./team");
+  const local = plain.split("@")[0];
+  return (await teamMember(plain))?.name ?? local.charAt(0).toUpperCase() + local.slice(1);
+}
+const chatUsers = new Map<string, string | null>();
+async function chatUser(name: string): Promise<string | null> {
+  if (!chatUsers.has(name)) { const { chatUserFor } = await import("./team"); chatUsers.set(name, await chatUserFor(name)); }
+  return chatUsers.get(name) ?? null;
+}
+
 export async function collectBrief(now = new Date()): Promise<BriefData> {
   const day = now.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
   const waiting: Waiting[] = [];
@@ -35,8 +49,9 @@ export async function collectBrief(now = new Date()): Promise<BriefData> {
     where r.status = 'proposed' order by r.created_at`) {
     // The person the proposal was addressed to: the team member who sent it, the meeting's organiser, or the team
     // member a client tagged (2026-09-29); the PMs as a group only when nobody is named.
-    const named = (r.asked_name as string | null) ?? (r.sender_is_staff ? String(r.sender).replace(/\s*<[^>]+>\s*$/, "").replace(/@.*$/, (e) => e.slice(1).split(".")[0]) : null);
-    waiting.push({ who: named || PMS, whoUser: named ? (r.asked_user as string | null) ?? null : null, client: String(r.client), what: `task to confirm: "${clip(String(r.title), 80)}"`, since: ago(new Date(String(r.created_at)), now) });
+    const named = (r.asked_name as string | null) ?? (r.sender_is_staff ? await personName(String(r.sender)) : null);
+    const user = (r.asked_user as string | null) ?? (named ? await chatUser(named) : null);
+    waiting.push({ who: named || PMS, whoUser: named ? user : null, client: String(r.client), what: `task to confirm: "${clip(String(r.title), 80)}"`, since: ago(new Date(String(r.created_at)), now) });
   }
   // Reminders that are due and not done.
   for (const r of await sql()`select r.owner_name, r.owner_user, r.text, r.due_at, c.name as client from reminders r left join clients c on c.id = r.client_id where r.done_at is null and r.due_at <= ${now.toISOString()} order by r.due_at`)

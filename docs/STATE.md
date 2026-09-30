@@ -23,6 +23,14 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-30, the first morning after the audit:** four faults seen in `eod_last` and fixed at the root the same hour.
+  (a) A comment placed inside the board-mirror insert's SQL text broke every new-card import overnight ("syntax error
+  at or near card"): removed, with a note that nothing but SQL goes in that template. (b) The morning list named
+  "heenamangoeyesagency": older meeting requests carry the organiser's email as sender; names now come from the team
+  record. (c) Proposals made under the old rules (before 29 Sep 17:30 UTC) close at the next run whatever their age,
+  since they are mostly meeting follow-ups that would not be proposed today (`OLD_RULES_BEFORE`). (d) The per-card poll
+  ran out of time: archived cards left the polls only after seven days and each forced a board-lists re-read; now they
+  leave at once and a board's lists are force-read at most once a minute.
 - **2026-09-29, the owner's audit, all eight points built (Arun: "cover everything in order"):** (1) meeting
   follow-ups (calls, syncs, look-intos) are listed, never proposed; each meeting proposal is addressed to the organiser
   (`src/lib/team.ts` maps the notes doc's owner email to a Pulp member and their Chat account from the Drop messages).

@@ -100,7 +100,7 @@ export async function GET(req: Request) {
       const { fetchCards } = await import("@/lib/sheet-cards");
       const ours = await sql()`select t.id, t.pulp_card_id, t.list_id, t.staging, t.title, t.board_id, t.sheet_row, c.name as client_name, tab.value as tab, st.value as sheet_stage
         from tasks t left join clients c on c.id = t.client_id left join settings tab on tab.key = 'sheet_tab:' || t.id::text left join settings st on st.key = 'sheet_stage:' || t.id::text
-        where t.pulp_card_id is not null and t.origin = 'hub' and (t.completed_at is null or t.completed_at > now() - interval '7 days')
+        where t.pulp_card_id is not null and t.origin = 'hub' and (t.completed_at is null or t.completed_at > now() - interval '7 days') and t.notes is distinct from 'Archived or deleted in Pulp'
           and (t.staging or t.pulp_checked_at is null or t.pulp_checked_at < now() - interval '2 minutes')
         order by t.pulp_checked_at asc nulls first, t.last_moved_at asc nulls first limit 150`;
       if (ours.length) await sql()`update tasks set pulp_checked_at = now() where id = any(${ours.map((t) => String(t.id))}::uuid[])`;

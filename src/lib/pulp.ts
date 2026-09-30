@@ -49,6 +49,7 @@ async function cached<T>(key: string, fn: () => Promise<T>, force = false): Prom
 export const normList = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 /** A list that means the work is finished: "Done", "Done (Final Delivery)", "Completed". Not "Ready to Use / Go Live" or "QA Testing Done". */
 export const isDoneList = (name: string) => /^(done|completed?|closed)\b/i.test(name.trim());
+const listsRefreshed = new Map<string, number>();
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
 export const pulp = {
@@ -194,6 +195,11 @@ export const pulp = {
     if (!card.boardId || !card.listId) return false;
     const has = (ls: PulpList[]) => ls.some((l) => l.id === card.listId);
     if (has(await this.listsOnBoard(card.boardId))) return false;
+    // A board's lists are re-read at most once a minute, however many of its cards sit on gone lists (2026-09-30: a
+    // re-read per card made the minute poll run out of time).
+    const last = listsRefreshed.get(card.boardId) ?? 0;
+    if (Date.now() - last < 60_000) return true;
+    listsRefreshed.set(card.boardId, Date.now());
     return !has(await this.listsOnBoard(card.boardId, true));
   },
 

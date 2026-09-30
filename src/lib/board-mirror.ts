@@ -118,6 +118,8 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
         };
       };
       // One statement per 300 cards: the first read of a board brings hundreds, and a round trip per card ran past the minute.
+      // A card found in Done is dated by its last move, not by the read (2026-09-29). Nothing but SQL may go inside the
+      // template below: a comment placed there on 29 Sep broke every insert for a night ("syntax error at or near card").
       const now = new Date().toISOString();
       for (let i = 0; i < plan.insert.length; i += 300) {
         const batch = plan.insert.slice(i, i + 300).map((card) => ({ card, f: fields(card) }));
@@ -125,7 +127,7 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
         await sql()`insert into tasks (request_id, client_id, pulp_card_id, board_id, list_id, title, priority, assignee, due_at, staging, created_at, completed_at, origin, sheet_key, department, labels, last_moved_at)
           select null, cl, c, ${b.id}, l, t, pr, a, d::timestamptz, s, cr::timestamptz, co::timestamptz, 'board', 'board:' || c, ${b.department}, string_to_array(lb, E'\\u0001'), lm::timestamptz
           from unnest(${col((x) => x.f.clientId)}::text[], ${col((x) => x.card.id)}::text[], ${col((x) => x.card.listId)}::text[], ${col((x) => x.card.title)}::text[], ${col((x) => x.f.priority)}::text[],
-                      ${col((x) => x.f.assignee)}::text[], ${col((x) => x.card.dueAt)}::text[], ${batch.map((x) => x.f.staging)}::boolean[], ${col((x) => x.card.createdAt ?? now)}::text[], ${col((x) => x.f.done ? (x.card.updatedAt ?? now) : null)}::text[], // a card found in Done was finished when it last moved, not when the hub first saw it (2026-09-29)
+                      ${col((x) => x.f.assignee)}::text[], ${col((x) => x.card.dueAt)}::text[], ${batch.map((x) => x.f.staging)}::boolean[], ${col((x) => x.card.createdAt ?? now)}::text[], ${col((x) => x.f.done ? (x.card.updatedAt ?? now) : null)}::text[],
                       ${col((x) => x.card.labels.join("\u0001"))}::text[], ${col((x) => x.card.updatedAt ?? null)}::text[])
             as v(cl, c, l, t, pr, a, d, s, cr, co, lb, lm)
           on conflict (sheet_key) where sheet_key is not null do update set list_id = excluded.list_id, title = excluded.title, labels = excluded.labels`;

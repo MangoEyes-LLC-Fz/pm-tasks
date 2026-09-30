@@ -36,6 +36,8 @@ export function ideasDue(now: Date, lastIdeasDay: string | null): boolean {
 export interface MorningReport { at: string; posted: boolean; headline: string | null; waiting: number; overdue: number; ideas: { posted: number; threadKey: string | null }; expired: number; errors: string[]; by: string }
 
 export const EXPIRE_AFTER_WORKING_DAYS = 5;
+/** Proposals made before the audit's rules went live (meeting follow-ups, group-addressed) close at the next run whatever their age. */
+export const OLD_RULES_BEFORE = "2026-09-29T17:30:00Z";
 
 /**
  * A proposal nobody answered in five working days closes itself: its card becomes one line saying so, and "create"
@@ -45,12 +47,12 @@ export const EXPIRE_AFTER_WORKING_DAYS = 5;
 export async function expireProposals(now = new Date()): Promise<number> {
   const { workingDaysAgo } = await import("./when");
   const cutoff = workingDaysAgo(now, EXPIRE_AFTER_WORKING_DAYS);
-  const rows = await sql()`select r.id, r.draft->>'title' as title, r.proposal->>'cardName' as card, r.message_id, m.raw->>'feedThreadKey' as feed_thread
-    from requests r join messages m on m.id = r.message_id where r.status = 'proposed' and r.created_at < ${cutoff.toISOString()} order by r.created_at limit 100`;
+  const rows = await sql()`select r.id, r.created_at, r.draft->>'title' as title, r.proposal->>'cardName' as card, r.message_id, m.raw->>'feedThreadKey' as feed_thread
+    from requests r join messages m on m.id = r.message_id where r.status = 'proposed' and (r.created_at < ${cutoff.toISOString()} or r.created_at < ${OLD_RULES_BEFORE}::timestamptz) order by r.created_at limit 150`;
   let n = 0;
   for (const r of rows) {
     await sql()`update requests set status = 'expired', decided_by = 'system:expired', decided_at = now() where id = ${r.id} and status = 'proposed'`;
-    const line = `⌛ No card: nobody confirmed "${String(r.title)}" in ${EXPIRE_AFTER_WORKING_DAYS} working days. Still wanted? Reply "create" here and the card is made.`;
+    const line = `⌛ No card: nobody confirmed "${String(r.title)}"${new Date(String(r.created_at ?? now.toISOString())) < cutoff ? ` in ${EXPIRE_AFTER_WORKING_DAYS} working days` : " (proposed under the old rules)"}. Still wanted? Reply "create" here and the card is made.`;
     try {
       const gchat = await import("./gchat");
       if (r.card && gchat.gchatConfigured()) await gchat.updateMessageText(String(r.card), line);
