@@ -69,6 +69,8 @@ export interface NoiseConfig {
   slack_skip_subtypes: string[];
   email_skip_senders: string[];
   email_allow_senders: string[];
+  /** Group addresses the hub is a member of: mail to or copying one of these is mail to the hub. */
+  email_intake_groups: string[];
 }
 
 export interface Draft {

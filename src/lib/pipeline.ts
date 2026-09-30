@@ -110,6 +110,16 @@ async function processStored(m: Message, messageId: string, hash: string, noiseV
   const clients = await allClients();
   const client = clients.find((c) => c.id === m.clientId) ?? null;
 
+  // A mail for a client the hub cannot tell is worth a "which client?" card only when it holds an ask: the team's threads
+  // copy the hub's group, and a reply with no ask is recorded quietly (2026-09-30). One model call, before the card.
+  if (m.channel === "email" && m.scope === "unknown" && noiseVerdict.reason !== "attachment_only") {
+    const peek = await extract({ text: m.text, channel: m.channel, clientName: null, messageId, senderIsStaff: m.senderIsStaff });
+    if (!peek.is_request || peek.asks.length === 0) {
+      await sql()`update messages set skip_reason = 'no_ask' where id = ${messageId}`;
+      return { messageId, outcome: "skipped", reason: "no_ask" };
+    }
+  }
+
   // Attachment only, or unknown client: a person decides, no model call.
   if (noiseVerdict.reason === "attachment_only" || m.scope === "unknown") {
     await sql()`update messages set skip_reason = ${noiseVerdict.reason ?? "unknown_client"} where id = ${messageId}`;

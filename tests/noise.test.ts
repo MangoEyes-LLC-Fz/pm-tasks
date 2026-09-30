@@ -54,17 +54,14 @@ describe("email rules", () => {
   it("allows ad-platform senders even if automated", () => {
     expect(emailNoise({ ...e, from: "ads-noreply@google.com", headers: { Precedence: "bulk" } }, cfg).skip).toBe(false);
   });
-  it("skips our own outgoing but keeps forwards", () => {
-    expect(emailNoise({ ...e, from: "arun@mangoeyesagency.com", fromIsStaff: true }, cfg).reason).toBe("staff_outgoing");
+  it("reads a team member's mail like anyone's: a copy to the hub's group is an intake, forwards too (2026-09-30)", () => {
+    expect(emailNoise({ ...e, from: "arun@mangoeyesagency.com", fromIsStaff: true }, cfg).skip).toBe(false);
     expect(emailNoise({ ...e, from: "arun@mangoeyesagency.com", fromIsStaff: true, isForward: true }, cfg).skip).toBe(false);
   });
   it("recognises a yes to the hub's client suggestion", async () => {
     const { isAffirmative } = await import("../src/lib/filter/noise");
     for (const t of ["yes", "Yes!", "yeah that's right", "correct 👍", "ok yes", "that's it"]) expect(isAffirmative(t), t).toBe(true);
     for (const t of ["yes but for HOH", "no", "Abela", "yes the footer is broken too", ""]) expect(isAffirmative(t), t).toBe(false);
-  });
-  it("keeps staff mail addressed to the intake address (typed ask or shared voice note)", () => {
-    expect(emailNoise({ ...e, from: "arun@mangoeyesagency.com", fromIsStaff: true, toIntake: true }, cfg).skip).toBe(false);
   });
   it("strips an Outlook-style quoted header block, as Gmail renders it (bold From line, separator, group footer)", () => {
     const t = [

@@ -4,7 +4,7 @@ Hi all. From today, every client ask goes through **Task Hub**. It turns what a 
 
 **Send asks here, nothing else changes:**
 - 📥 **Task Hub Drop** space: share from your phone (WhatsApp text, voice note, screenshot with a typed line).
-- On a computer: DM **Task Hub** in Chat, or forward the mail to **taskhub@mangoeyesagency.com**.
+- On a computer: DM **Task Hub** in Chat, forward the mail to **taskhub@mangoeyesagency.com**, or keep **clientsuccess.team@mangoeyesagency.com** in Cc on the client thread. Plain conversation in such a thread is recorded and posts nothing; an ask comes to you as a card.
 - Start with the client when the message does not say it: `HOH: the booking form is broken`.
 
 **Three rules:**

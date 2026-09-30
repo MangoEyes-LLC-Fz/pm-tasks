@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMail } from "../src/lib/gmail";
+import { parseMail, intakeAddresses, toIntakeQuery } from "../src/lib/gmail";
 
 const b64 = (s: string) => Buffer.from(s).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
 const mail = (subject: string, from: string, text: string) => ({
@@ -30,5 +30,13 @@ describe("signatures", () => {
     expect(stripSignature("Please update the price list.\n\nKind regards,\nArun\n[image: logo]")).toBe("Please update the price list.");
     expect(stripSignature("[image: Kind regards,\nArun Chandel\nMangoEyes")).toBe("");
     expect(stripSignature("Thanks, can you update the price list by Friday?")).toBe("Thanks, can you update the price list by Friday?");
+  });
+
+  it("counts the hub's group as the hub and asks Gmail for To, Cc and delivered-to (2026-09-30)", () => {
+    process.env.GMAIL_INTAKE_ADDRESS = "taskhub@mangoeyesagency.com";
+    expect(intakeAddresses()).toEqual(["taskhub@mangoeyesagency.com", "clientsuccess.team@mangoeyesagency.com"]);
+    const q = toIntakeQuery();
+    for (const a of intakeAddresses()) for (const op of ["to", "cc", "deliveredto"]) expect(q).toContain(`${op}:${a}`);
+    expect(q.startsWith("{") && q.trimEnd().endsWith("}")).toBe(true);
   });
 });

@@ -21,12 +21,19 @@ export const gmailConfigured = () => !!process.env.GOOGLE_SERVICE_ACCOUNT_B64 &&
 /** The Google Workspace user the hub reads as. An alias is not a user: set the real mailbox that owns the alias. */
 export const mailbox = () => (process.env.GMAIL_MAILBOX ?? "").trim().toLowerCase();
 /** The address mails are sent to (the alias), used to filter the inbox. Defaults to the mailbox. */
-/** The intake addresses, comma-separated in GMAIL_INTAKE_ADDRESS (e.g. "taskhub@…,intake@…" while the team switches). */
-export const intakeAddresses = () => (process.env.GMAIL_INTAKE_ADDRESS ?? process.env.GMAIL_MAILBOX ?? "").split(",").map((a) => a.trim().toLowerCase()).filter(Boolean);
+/**
+ * The intake addresses: GMAIL_INTAKE_ADDRESS, comma-separated ("taskhub@…,intake@…" while the team switches), plus the
+ * group addresses in config/noise.yaml the hub is a member of (clientsuccess.team@, 2026-09-30): a mail to or copying
+ * any of them is mail to the hub.
+ */
+export const intakeAddresses = () => [...(process.env.GMAIL_INTAKE_ADDRESS ?? process.env.GMAIL_MAILBOX ?? "").split(","), ...(noiseConfig().email_intake_groups ?? [])].map((a) => a.trim().toLowerCase()).filter(Boolean);
 /** The main intake address (the first one), for display. */
 export const intakeAddress = () => intakeAddresses()[0] ?? "";
-/** Gmail search clause matching any intake address in To/Cc. */
-export const toIntakeQuery = () => { const a = intakeAddresses(); return a.length ? `{${a.map((x) => `to:${x}`).join(" ")}} ` : ""; };
+/**
+ * Gmail search clause: any intake address in To or Cc, or the mail delivered to it (a group's copy carries the group in
+ * the headers and the hub only in Delivered-To). Spelt out so it never depends on what Gmail counts under "to:".
+ */
+export const toIntakeQuery = () => { const a = intakeAddresses(); return a.length ? `{${a.map((x) => `to:${x} cc:${x} deliveredto:${x}`).join(" ")}} ` : ""; };
 
 let _gmail: gmail_v1.Gmail | null = null;
 export function gmail(): gmail_v1.Gmail {
@@ -230,7 +237,7 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
     mail.history ? `${HISTORY_MARKER}\n${mail.history}` : "",
   ].filter(Boolean).join("\n\n").trim();
 
-  const verdict = emailNoise({ from: senderEmail, fromIsStaff: senderIsStaff, isForward: mail.isForward, toIntake: sentToIntake(mail.to), headers: mail.headers, text: composed }, noiseConfig());
+  const verdict = emailNoise({ from: senderEmail, fromIsStaff: senderIsStaff, isForward: mail.isForward, headers: mail.headers, text: composed }, noiseConfig());
 
   // Client: the subject/note ("HOH: ...", "[PSS]"), the original sender's domain, then the forwarder's note text.
   const hit = resolveClientFromText(`${subjectClean}\n${mail.note}`, clients)
@@ -259,9 +266,12 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
   }
   const result = await processMessage(m, verdict);
   const n = result.requestIds?.length ?? 0;
-  // A "which client?" / "attachment only" card is already the feed post for this mail: no extra line.
+  // A "which client?" / "attachment only" card is already the feed post for this mail: no extra line. A mail with no
+  // ask is recorded and nothing is posted (2026-09-30: the team's threads copy the hub's group; conversation must not
+  // reach the feed, only what needs a person).
   const askedOnCard = (result.outcome === "review" && n === 0 && /^(unknown_client|attachment_only)$/.test(result.reason ?? "")) || result.reason === "client_unhappy";
-  if (!(result.outcome === "review" && n) && !(result.outcome === "skipped" && verdict.skip) && !askedOnCard) {
+  const quiet = result.outcome === "skipped" && (verdict.skip || result.reason === "no_ask");
+  if (!(result.outcome === "review" && n) && !quiet && !askedOnCard) {
     await postAck({ message: { ...m, text: subjectClean || m.text }, outcome: result.outcome, detail: `${humanOutcome(result.outcome, result.reason)}${transcriptNote}`, messageId: result.messageId || null });
   }
   return `${subjectClean.slice(0, 40)} → ${result.outcome}${result.reason ? ` (${result.reason})` : ""}`;
@@ -270,21 +280,13 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
 /** Separates the sender's words from the earlier thread in the stored text; the pipeline and the model treat what follows as context only. */
 export const HISTORY_MARKER = "Earlier in this thread (context only, not the ask):";
 
-/** Is the intake address in the To line (not just Cc)? A staff mail addressed to the hub is an intake, not outgoing mail. */
-export function sentToIntake(to: string): boolean {
-  const t = to.toLowerCase();
-  return intakeAddresses().some((a) => t.includes(a));
-}
-
 /**
- * Self-heal: mails a person addressed to the hub that an older rule dropped as "staff outgoing" (before 2026-09-14) are
- * re-run once. process_message deletes and re-inserts the row, so a re-run never repeats: the reason changes or a request appears.
+ * Self-heal: mails the retired "staff outgoing" rule dropped in its last three days (until 2026-09-30 a team member's
+ * mail that only copied the hub was skipped) are re-run once. process_message updates the row in place, so a re-run
+ * never repeats: the reason changes or a request appears.
  */
 async function requeueDroppedIntakeMails(): Promise<number> {
-  const addrs = intakeAddresses();
-  if (!addrs.length) return 0;
-  const rows = await sql()`select id, raw->'gmail'->>'to' as to_line from messages where channel = 'email' and skip_reason = 'staff_outgoing' and created_at > now() - interval '3 days' limit 50`;
-  const hits = rows.filter((r) => sentToIntake(String(r.to_line ?? "")));
+  const hits = await sql()`select id from messages where channel = 'email' and skip_reason = 'staff_outgoing' and created_at > now() - interval '3 days' limit 50`;
   for (const r of hits) {
     await sql()`update messages set skip_reason = 'requeued' where id = ${r.id}`;
     await enqueue("process_message", { messageId: String(r.id) }, 0);

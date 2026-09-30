@@ -98,6 +98,10 @@ slack_skip_subtypes:
   - channel_purpose
   - thread_broadcast
 
+# Group addresses the hub is a member of: a mail to or copying one of these is mail to the hub (2026-09-30).
+email_intake_groups:
+  - clientsuccess.team@mangoeyesagency.com
+
 # Email senders skipped unless allowlisted.
 email_skip_senders:
   - noreply@

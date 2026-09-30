@@ -9,7 +9,7 @@ One page per role. Everything here is verified on live traffic (see `docs/FEATUR
 | From | Do |
 |---|---|
 | Phone (WhatsApp text, voice note, screenshot) | Share → **Task Hub Drop** (the Google Chat space with the 📥 icon) |
-| Computer | Google Chat → DM **Task Hub**, or forward the mail to **taskhub@mangoeyesagency.com** |
+| Computer | Google Chat → DM **Task Hub**, or forward the mail to **taskhub@mangoeyesagency.com**, or keep **clientsuccess.team@mangoeyesagency.com** in Cc on the client thread (the hub reads it; only an ask reaches the feed) |
 | Meeting | Nothing. Gemini notes from Google Meet are read on their own |
 | Client's Slack | Nothing. Every client message in a channel the hub is in is read on its own; a client left without a reply gets a reminder in the feed after 20 min, 1 hour, 1 day, then daily. Reply in Slack, or press **Acknowledged** under the reminder |
 
