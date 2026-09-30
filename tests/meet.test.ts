@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { meetingTitle, heldAtFrom, notesNotReady, headlineTitle, meetingHeadline, meetingTallyLine, readerEmails, readerError } from "../src/lib/meet";
+import { meetingTitle, heldAtFrom, notesNotReady, headlineTitle, meetingHeadline, meetingTallyLine, readerEmails, readerError, readerProblem } from "../src/lib/meet";
 
 describe("meeting headline", () => {
   it("names the call, whose it was and the day; the tally and notes link are the first reply", () => {
@@ -54,9 +54,13 @@ describe("whose Drives the hub reads (2026-09-30: no folder sharing)", () => {
     expect(readerEmails(members, "arun@mangoeyesagency.com", ["mangoeyesagency.com"])).toEqual(["arun@mangoeyesagency.com", "heena@mangoeyesagency.com", "vishnu@mangoeyesagency.com"]);
     expect(readerEmails([], null, ["mangoeyesagency.com"])).toEqual([]);
   });
-  it("says what to do when the Admin scope is missing", () => {
+  it("tells a missing Admin scope from an address that is no Google account", () => {
+    expect(readerProblem(new Error("unauthorized_client: Client is unauthorized to retrieve access tokens using this method")).kind).toBe("scope");
     expect(readerError(new Error("unauthorized_client: Client is unauthorized to retrieve access tokens using this method"))).toContain("Google Admin");
-    expect(readerError(new Error("File not found"))).toBe("File not found");
+    const gone = readerProblem(new Error("invalid_grant: Invalid email or User ID"));
+    expect(gone.kind).toBe("no_account");
+    expect(gone.message).toContain("tried again tomorrow");
+    expect(readerProblem(new Error("File not found"))).toEqual({ kind: "other", message: "File not found" });
   });
 });
 

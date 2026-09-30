@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cronAuthorized } from "@/lib/auth";
-import { driveAs, findNoteDocs, meetConfigured, pollMeetings, readers, readerError, rereadNoteDoc, forgetMeetingCards } from "@/lib/meet";
+import { driveAs, findNoteDocs, meetConfigured, pollMeetings, readers, readerProblem, rereadNoteDoc, forgetMeetingCards } from "@/lib/meet";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,19 +17,21 @@ export async function GET(req: Request) {
   if (!meetConfigured()) return NextResponse.json({ ok: false, error: "GOOGLE_SERVICE_ACCOUNT_B64 not set" }, { status: 500 });
   try {
     const people = await readers();
-    const coverage: Array<{ as: string; ok: boolean; error?: string }> = [];
+    const coverage: Array<{ as: string; ok: boolean; problem?: string; error?: string }> = [];
     for (const as of people) {
       try { await driveAs(as).files.list({ q: "trashed = false", fields: "files(id)", pageSize: 1 }); coverage.push({ as, ok: true }); }
-      catch (e) { coverage.push({ as, ok: false, error: readerError(e) }); }
+      catch (e) { const p = readerProblem(e); coverage.push({ as, ok: false, problem: p.kind, error: p.message }); }
     }
     const errors: Array<{ as: string; error: string }> = [];
+    const skipped: Array<{ as: string; why: string }> = [];
     let docs: Awaited<ReturnType<typeof findNoteDocs>> = [];
-    try { docs = await findNoteDocs(14, { errors }); } catch (e) { errors.push({ as: "*", error: (e as Error).message.slice(0, 200) }); }
+    try { docs = await findNoteDocs(14, { errors, skipped }); } catch (e) { errors.push({ as: "*", error: (e as Error).message.slice(0, 200) }); }
     const out: Record<string, unknown> = {
       ok: coverage.some((c) => c.ok),
       readsDriveAs: coverage,
       notesDocsLast14Days: docs.map((d) => ({ name: d.name, modified: d.modifiedTime, owner: d.owner, folder: d.folder, seenAs: d.as })),
       ...(errors.length ? { errors } : {}),
+      ...(skipped.length ? { skipped } : {}),
     };
     const params = new URL(req.url).searchParams;
     // ?since=now (or an ISO time): only notes docs changed after this moment are read on their own. Use it when older

@@ -20,8 +20,8 @@ mirrored so Claude can answer about all of them; the 10:00 India post names what
 
 1. **Meet notes without folder sharing.** The hub reads Drive as each team member (domain-wide delegation, scope
    `drive.readonly`, added by Arun in Google Admin). No folder is shared any more; `meet-check` lists whose Drives are
-   read and whether each can be read. *Proof pending:* the first `meet_poll_last` after deploy has no
-   "as <email>: not authorised" errors; the next meeting from an organiser who never shared a folder appears in the feed.
+   read and whether each can be read. *Proven* the same evening: 38 docs found across the team. Addresses on the Pulp
+   boards that are not Google accounts are set aside for a day and listed as skipped.
 2. **Mail via the group.** clientsuccess.team@ counts as the hub; the mailbox search names To, Cc and delivered-to;
    a team member's mail is read like anyone's (the "staff outgoing" rule is retired); a mail with no ask is recorded and
    posts nothing; an unknown-client mail gets the "which client?" card only when it holds an ask. *Proof pending:* the
@@ -47,7 +47,7 @@ for hand-made cards and the PMs board like every board; 23 Sep cards from Claude
 ## Being watched (proofs that need real traffic)
 
 - Tomorrow's 10:00 India post: short, named people only, `eod_last.expired` counting the old-rule proposals closed.
-- The Meet reader as each team member: `hub_status` → `meet_poll_last.errors` empty; `meet-check` all `ok: true`.
+- The Meet reader as each team member: proven 18:35 UTC (38 docs found, the backlog of the last three days read two per run). Seven Pulp board members have addresses that are not Google accounts; they show under `meet_poll_last.skipped`, retried daily, never an issue.
 - The group-Cc mail path: a no-ask reply shows in `recent_messages` as `no_ask` with nothing in the feed.
 - Slack proposals @mentioning the person the client tagged; meeting threads showing "Follow-ups, no card".
 - Hand-made cards without a client label: 11 on the Video board, 2 on Graphics, waiting (`board_mirror_last.waitingLabel`).

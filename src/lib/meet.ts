@@ -56,12 +56,21 @@ export async function readers(): Promise<string[]> {
   return readerEmails(await teamMembers(), process.env.GMAIL_MAILBOX ?? null);
 }
 
-/** What the reader could not do as a given person: the scope missing in Google Admin, an account that does not exist. */
-export function readerError(e: unknown): string {
+/**
+ * Why the hub could not read as a person. "scope": the Drive read-only scope is missing in Google Admin (fix there).
+ * "no_account": the address is not a Google Workspace account (a Pulp board member with a different or former
+ * address): set aside for a day, not an issue. Anything else is reported as it is.
+ */
+export function readerProblem(e: unknown): { kind: "scope" | "no_account" | "other"; message: string } {
   const m = (e as Error).message ?? String(e);
-  if (/unauthorized_client|invalid_grant|not authorized|Not authorized|delegation/i.test(m)) return `not authorised: add the Drive read-only scope for the hub's service account in Google Admin (Domain Wide Delegation) (${m.slice(0, 120)})`;
-  return m.slice(0, 200);
+  if (/Invalid email or User ID|user does not exist|Not a valid email/i.test(m)) return { kind: "no_account", message: `no such Google account on the domain (a board member's address that is not a Workspace user); tried again tomorrow (${m.slice(0, 80)})` };
+  if (/unauthorized_client|not authorized|Not authorized|delegation|invalid_grant/i.test(m)) return { kind: "scope", message: `not authorised: add the Drive read-only scope for the hub's service account in Google Admin (Domain Wide Delegation) (${m.slice(0, 120)})` };
+  return { kind: "other", message: m.slice(0, 200) };
 }
+export const readerError = (e: unknown): string => readerProblem(e).message;
+
+const READER_OFF_HOURS = 24;
+const readerOffKey = (as: string) => `meet_reader_off:${as}`;
 
 const NOTES_TITLE = /\s*[-–—]\s*(Notes by Gemini|Gemini notes|notes)\s*$/i;
 const TRANSCRIPT_TITLE = /\s*[-–—]\s*transcript\s*$/i;
@@ -76,16 +85,26 @@ export interface NoteDoc { id: string; name: string; modifiedTime: string; owner
  * target; the same doc through several people is one doc. A person the hub cannot read as is reported, never fatal;
  * only when nobody can be read is the poll a failure.
  */
-export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string; error: string }>; readers?: string[] } = {}): Promise<NoteDoc[]> {
+export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string; error: string }>; skipped?: Array<{ as: string; why: string }>; readers?: string[] } = {}): Promise<NoteDoc[]> {
   const people = opts.readers ?? await readers();
   if (!people.length) throw new Error("no team member with a work address to read Drive as");
   const out = new Map<string, NoteDoc>();
   let okCount = 0;
+  // Addresses that are not Google accounts are set aside for a day (settings `meet_reader_off:<email>` holds until when).
+  const off = new Map((await sql()`select key, value from settings where key like 'meet_reader_off:%'`).map((r) => [String(r.key).slice("meet_reader_off:".length), new Date(String(r.value))]));
   for (const as of people) {
+    const until = off.get(as);
+    if (until && until > new Date()) { opts.skipped?.push({ as, why: `no such Google account on the domain; tried again after ${until.toISOString().slice(0, 16)}Z` }); continue; }
     try { for (const doc of await findNoteDocsAs(as, days)) if (!out.has(doc.id)) out.set(doc.id, doc); okCount++; }
-    catch (e) { opts.errors?.push({ as, error: readerError(e) }); }
+    catch (e) {
+      const p = readerProblem(e);
+      if (p.kind === "no_account") {
+        opts.skipped?.push({ as, why: p.message });
+        try { await sql()`insert into settings (key, value) values (${readerOffKey(as)}, ${JSON.stringify(new Date(Date.now() + READER_OFF_HOURS * 3_600_000).toISOString())}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* next run tries again */ }
+      } else opts.errors?.push({ as, error: p.message });
+    }
   }
-  if (!okCount) throw new Error(`Drive could not be read as anyone: ${opts.errors?.[0]?.error ?? "unknown"}`);
+  if (!okCount && !out.size) throw new Error(`Drive could not be read as anyone: ${opts.errors?.[0]?.error ?? opts.skipped?.[0]?.why ?? "unknown"}`);
   return [...out.values()].sort((a, b) => a.modifiedTime.localeCompare(b.modifiedTime));
 }
 
@@ -465,8 +484,9 @@ async function meetSince(): Promise<Date> {
 export async function pollMeetings(): Promise<{ found: number; processed: string[]; errors: string[] }> {
   const processed: string[] = [], errors: string[] = [];
   const started = Date.now();
+  const skipped: Array<{ as: string; why: string }> = [];
   const save = async (extra: Record<string, unknown>) => {
-    try { await sql()`insert into settings (key, value) values ('meet_poll_last', ${JSON.stringify({ at: new Date().toISOString(), found: 0, processed, errors, ...extra })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
+    try { await sql()`insert into settings (key, value) values ('meet_poll_last', ${JSON.stringify({ at: new Date().toISOString(), found: 0, processed, errors, skipped: skipped.map((x) => `${x.as}: ${x.why}`), ...extra })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
   };
   // A trace before any slow step, so a run that is cut short still shows where it was.
   await save({ phase: "listing" });
@@ -474,8 +494,9 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
   const readerErrors: Array<{ as: string; error: string }> = [];
   try {
     const since = await meetSince();
-    docs = (await findNoteDocs(3, { errors: readerErrors })).filter((d) => new Date(d.modifiedTime) > since);
-    // A person the hub could not read as shows on health and in the brief, even when the others were fine.
+    docs = (await findNoteDocs(3, { errors: readerErrors, skipped })).filter((d) => new Date(d.modifiedTime) > since);
+    // A person the hub could not read as shows on health and in the brief, even when the others were fine. An address
+    // that is no Google account is listed under `skipped`, not as an issue.
     for (const r of readerErrors) errors.push(`as ${r.as}: ${r.error}`);
   } catch (e) {
     // A failed Drive query must show on health and in the brief, not vanish.

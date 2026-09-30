@@ -29,7 +29,9 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   record from the Pulp boards, plus the mailbox owner), one query per person every 5 minutes, read only; file ids dedupe
   across people and `meetings.drive_file_id` keeps a meeting read once, so docs read earlier through shared folders are
   never read again. The service account's own Drive view is gone; shared folders may stay or go. A person the hub cannot
-  read as is named in `meet_poll_last.errors` and on `meet-check`, with the Admin step spelt out.
+  read as is named in `meet_poll_last.errors` and on `meet-check`, with the Admin step spelt out. First run: 38 docs
+  found; seven board members' addresses were not Google accounts ("Invalid email or User ID"), first mislabelled as the
+  missing scope: now told apart, set aside for a day (`meet_reader_off:<email>`) and listed as skipped, never an issue.
 - **2026-09-30, mail copying the hub's group (Arun):** the hub is a member of `clientsuccess.team@mangoeyesagency.com`,
   which the team keeps in Cc on client threads. Found: a team member's mail that only copied the hub was dropped as
   "staff outgoing" (rule of 14 Sep), the group was not known as the hub, and the mailbox search relied on Gmail's
