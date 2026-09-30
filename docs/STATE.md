@@ -23,6 +23,13 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-30, a Slack ask sat with no outcome for an hour and the watchdog never touched it:** the watchdog's
+  "already queued" check matched any pending queue job carrying the message id, and every client Slack message carries
+  reply-check jobs for a day, so no client Slack message that died mid-run was ever retried. Fixed at the root: only a
+  queued `process_message` re-run counts. Sibling: nothing said why the run had died (the Slack handler keeps only the
+  last event), so a run that dies now writes `lastError` and `failedAt` on the message, and `hub_status` shows them
+  under `stuckMessages` with the retry count. The watchdog re-runs such a message three times, then marks it failed
+  with a feed line, as designed on 15 Sep.
 - **2026-09-30, the 10:00 post was still 101 items (Arun):** the 47 "on Heena" were not Staging cards but meeting to-dos
   from her meetings of 25–29 Sep that nobody tapped, made under the old rules. Decided: (1) proposal expiry runs in the
   minute loop every ten minutes, not only at 10:00, so dead proposals leave the feed the same hour; (2) a hub card

@@ -82,6 +82,17 @@ export async function processMessage(m: Message, noiseVerdict: { skip: boolean; 
       returning id`;
   if (!stored.length) return { messageId: "", outcome: "skipped", reason: "already_seen" };
   const messageId = stored[0].id as string;
+  try { return await processStored(m, messageId, hash, noiseVerdict, opts); }
+  catch (e) {
+    // A run that dies (model call, Pulp, a bug) leaves its reason on the message: hub_status shows it under
+    // stuckMessages, and the watchdog re-runs the message (2026-09-30: a Slack ask sat with no outcome and no trace of why).
+    try { await sql()`update messages set raw = coalesce(raw, '{}'::jsonb) || ${JSON.stringify({ lastError: (e as Error).message.slice(0, 300), failedAt: new Date().toISOString() })}::jsonb where id = ${messageId}`; }
+    catch { /* the original error is what matters */ }
+    throw e;
+  }
+}
+
+async function processStored(m: Message, messageId: string, hash: string, noiseVerdict: { skip: boolean; reason: string | null }, opts: { rerun?: boolean }): Promise<ProcessResult> {
   if (opts.rerun) await sql()`delete from requests where message_id = ${messageId} and id not in (select request_id from tasks where request_id is not null)`;
 
   // Unanswered-client-message nudge: any client-authored Slack message starts a timer, request or not.

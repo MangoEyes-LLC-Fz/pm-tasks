@@ -235,12 +235,14 @@ async function watchdog(): Promise<Record<string, unknown>> {
     return Number(r[0].value);
   };
 
-  // a. Stored but never finished: no outcome, no request, older than 3 minutes, not waiting on anything.
+  // a. Stored but never finished: no outcome, no request, older than 3 minutes, no re-run already queued. Only a
+  // process_message job counts as "already queued": every client Slack message carries reply_check jobs for a day,
+  // and until 2026-09-30 those hid it from the watchdog, so a run that died was never retried.
   const orphans = await sql()`
     select m.id, m.channel, m.sender, left(m.text, 80) as text, m.permalink from messages m
     where m.skip_reason is null and m.created_at < now() - interval '3 minutes' and m.created_at > now() - interval '3 days'
       and not exists (select 1 from requests r where r.message_id = m.id)
-      and not exists (select 1 from queue q where q.done_at is null and q.payload->>'messageId' = m.id::text)
+      and not exists (select 1 from queue q where q.done_at is null and q.kind = 'process_message' and q.payload->>'messageId' = m.id::text)
     limit 20`;
   for (const m of orphans) {
     const n = await strikes(`watchdog:msg:${m.id}`);

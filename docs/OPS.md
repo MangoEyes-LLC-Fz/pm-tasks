@@ -12,7 +12,7 @@ Everything you may need to do or check. Replace `<SECRET>` with the value of `CR
 
 1. Health page: `ok` true? `tickAgeSeconds` under 120?
 2. The channel's last poll: `chatInboxLast` (Drop space), `gmailPollLast` (mail), `gchatLastEvent` (DM), `meetPollLast`. Each shows `errors`.
-3. `queueErrors` and `stuckMessages` in hub status. A stuck message is retried by the watchdog every 10 minutes, up to three times, then reported as an Issue in the brief.
+3. `queueErrors` and `stuckMessages` in hub status. A stuck message shows why its run died (`last_error`, `failed_at`) and how many re-runs were queued; the watchdog retries it every 10 minutes, up to three times, then marks it failed and posts a ⚠️ line in the feed.
 4. Still nothing: ask the person to send it again (the receipt rule), and tell me what the health page said.
 
 ## Add a client
