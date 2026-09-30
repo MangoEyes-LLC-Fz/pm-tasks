@@ -9,8 +9,11 @@ import type { Client, Message } from "./types";
 
 /**
  * Meeting notes. Google Meet writes "<title> - Notes by Gemini" docs into the organiser's Drive, under "Meet
- * Recordings" or "Google Meet/<meeting>/". Each organiser shares that folder with the service account once; the hub
- * finds every notes doc it can see at any depth, plus any notes doc shared directly. New docs are read every 5 minutes.
+ * Recordings" or "Google Meet/<meeting>/", a new folder whenever it likes. Nobody shares anything (2026-09-30): the
+ * hub reads Drive as each team member through domain-wide delegation (scope drive.readonly, read only), so every notes
+ * doc in anyone's Drive is found at any depth the moment it exists. The same doc seen through several people (Meet
+ * shares notes with attendees) is one doc: file ids dedupe, and a meeting read before is never read again.
+ * New docs are read every 5 minutes.
  *
  * Every meeting is sorted into four buckets (one model call): actions go through the normal pipeline per client
  * (dedupe against open tasks, Staging card, feed line); ideas and decisions are stored and get one line each;
@@ -22,27 +25,72 @@ function credentials() {
   if (!b64) throw new Error("GOOGLE_NOT_CONFIGURED");
   return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
 }
-let _drive: drive_v3.Drive | null = null;
-export function drive(): drive_v3.Drive {
-  if (!_drive) _drive = google.drive({ version: "v3", auth: new google.auth.GoogleAuth({ credentials: credentials(), scopes: ["https://www.googleapis.com/auth/drive.readonly"] }) });
-  return _drive;
+const _drives = new Map<string, drive_v3.Drive>();
+/** Drive as one team member (domain-wide delegation, read only). */
+export function driveAs(email: string): drive_v3.Drive {
+  let d = _drives.get(email);
+  if (!d) {
+    const creds = credentials() as { client_email: string; private_key: string };
+    d = google.drive({ version: "v3", auth: new google.auth.JWT({ email: creds.client_email, key: creds.private_key, subject: email, scopes: ["https://www.googleapis.com/auth/drive.readonly"] }) });
+    _drives.set(email, d);
+  }
+  return d;
 }
 export const meetConfigured = () => !!process.env.GOOGLE_SERVICE_ACCOUNT_B64;
+
+const staffDomains = () => (process.env.STAFF_EMAIL_DOMAINS || "mangoeyesagency.com").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+
+/** Pure: whose Drives the hub reads. Team members with a work address on a staff domain, plus the hub's mailbox owner; each once. */
+export function readerEmails(members: Array<{ email: string | null }>, mailbox: string | null, domains = staffDomains()): string[] {
+  const out: string[] = [];
+  for (const e of [mailbox, ...members.map((m) => m.email)]) {
+    const a = (e ?? "").trim().toLowerCase();
+    if (a && domains.some((d) => a.endsWith("@" + d)) && !out.includes(a)) out.push(a);
+  }
+  return out;
+}
+
+/** The team members whose Drives are read: the team record (Pulp board members) plus the mailbox owner. */
+export async function readers(): Promise<string[]> {
+  const { teamMembers } = await import("./team");
+  return readerEmails(await teamMembers(), process.env.GMAIL_MAILBOX ?? null);
+}
+
+/** What the reader could not do as a given person: the scope missing in Google Admin, an account that does not exist. */
+export function readerError(e: unknown): string {
+  const m = (e as Error).message ?? String(e);
+  if (/unauthorized_client|invalid_grant|not authorized|Not authorized|delegation/i.test(m)) return `not authorised: add the Drive read-only scope for the hub's service account in Google Admin (Domain Wide Delegation) (${m.slice(0, 120)})`;
+  return m.slice(0, 200);
+}
 
 const NOTES_TITLE = /\s*[-–—]\s*(Notes by Gemini|Gemini notes|notes)\s*$/i;
 const TRANSCRIPT_TITLE = /\s*[-–—]\s*transcript\s*$/i;
 
-export interface NoteDoc { id: string; name: string; modifiedTime: string; owner: string | null; folder: string | null }
+export interface NoteDoc { id: string; name: string; modifiedTime: string; owner: string | null; folder: string | null; /** whose Drive view it was found through; the doc is read through the same */ as: string }
 
 /**
- * Every Gemini notes doc the hub can see, at any depth. Google files them differently over time: directly in
- * "Meet Recordings", or under "Google Meet/<meeting> - <date>/", sometimes as a shortcut in a recurring meeting's
- * folder. So this does not walk folders at all: one Drive query for anything named "… Notes by Gemini" (documents
- * and shortcuts to documents) modified since the watermark, wherever it sits. Sharing any ancestor folder with the
- * service account is enough; a doc shared directly counts too. Shortcuts resolve to their target and dedupe.
+ * Every Gemini notes doc in any team member's Drive, at any depth. Google files them differently over time: directly
+ * in "Meet Recordings", or under "Google Meet/<meeting> - <date>/", sometimes as a shortcut in a recurring meeting's
+ * folder. So this does not walk folders at all: per person, one Drive query for anything named "… Notes by Gemini"
+ * (documents and shortcuts to documents) modified since the watermark, wherever it sits. Shortcuts resolve to their
+ * target; the same doc through several people is one doc. A person the hub cannot read as is reported, never fatal;
+ * only when nobody can be read is the poll a failure.
  */
-export async function findNoteDocs(days = 3): Promise<NoteDoc[]> {
-  const d = drive();
+export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string; error: string }>; readers?: string[] } = {}): Promise<NoteDoc[]> {
+  const people = opts.readers ?? await readers();
+  if (!people.length) throw new Error("no team member with a work address to read Drive as");
+  const out = new Map<string, NoteDoc>();
+  let okCount = 0;
+  for (const as of people) {
+    try { for (const doc of await findNoteDocsAs(as, days)) if (!out.has(doc.id)) out.set(doc.id, doc); okCount++; }
+    catch (e) { opts.errors?.push({ as, error: readerError(e) }); }
+  }
+  if (!okCount) throw new Error(`Drive could not be read as anyone: ${opts.errors?.[0]?.error ?? "unknown"}`);
+  return [...out.values()].sort((a, b) => a.modifiedTime.localeCompare(b.modifiedTime));
+}
+
+async function findNoteDocsAs(as: string, days: number): Promise<NoteDoc[]> {
+  const d = driveAs(as);
   const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
   const out = new Map<string, NoteDoc>();
   const parentNames = new Map<string, string>();
@@ -69,22 +117,22 @@ export async function findNoteDocs(days = 3): Promise<NoteDoc[]> {
         id = f.shortcutDetails.targetId;
       }
       if (out.has(id)) continue;
-      out.set(id, { id, name: f.name, modifiedTime: f.modifiedTime ?? since, owner: f.owners?.[0]?.emailAddress ?? null, folder: await folderName(f.parents?.[0]) });
+      out.set(id, { id, name: f.name, modifiedTime: f.modifiedTime ?? since, owner: f.owners?.[0]?.emailAddress ?? null, folder: await folderName(f.parents?.[0]), as });
     }
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken);
-  return [...out.values()].sort((a, b) => a.modifiedTime.localeCompare(b.modifiedTime));
+  return [...out.values()];
 }
 
-async function docText(id: string): Promise<string> {
-  const res = await drive().files.export({ fileId: id, mimeType: "text/plain" }, { responseType: "text" });
+async function docText(doc: NoteDoc): Promise<string> {
+  const res = await driveAs(doc.as).files.export({ fileId: doc.id, mimeType: "text/plain" }, { responseType: "text" });
   return String(res.data ?? "").replace(/\r\n/g, "\n").trim();
 }
 
 /** People the doc is shared with (Meet shares the notes with attendees). Best effort; viewers may not see this. */
-async function attendeesOf(id: string): Promise<string[]> {
+async function attendeesOf(doc: NoteDoc): Promise<string[]> {
   try {
-    const res = await drive().permissions.list({ fileId: id, fields: "permissions(emailAddress,type)", supportsAllDrives: true });
+    const res = await driveAs(doc.as).permissions.list({ fileId: doc.id, fields: "permissions(emailAddress,type)", supportsAllDrives: true });
     return (res.data.permissions ?? []).map((p) => p.emailAddress ?? "").filter((e) => e && !e.endsWith("gserviceaccount.com"));
   } catch { return []; }
 }
@@ -146,10 +194,10 @@ export async function processNoteDoc(doc: NoteDoc): Promise<string> {
   const retryKey = `meet_retry:${doc.id}`;
   const last = await sql()`select value from settings where key = ${retryKey}`;
   if (last.length && Date.now() - new Date(String(last[0].value)).getTime() < RETRY_MINUTES * 60_000) return `${doc.name}: waiting for Gemini to finish`;
-  const notes = await docText(doc.id);
+  const notes = await docText(doc);
   const clients = await allClients();
   const title = meetingTitle(doc.name);
-  const attendees = await attendeesOf(doc.id);
+  const attendees = await attendeesOf(doc);
   const heldAt = heldAtFrom(notes, doc.modifiedTime);
   const docUrl = `https://docs.google.com/document/d/${doc.id}/edit`;
   const ageHours = (Date.now() - new Date(doc.modifiedTime).getTime()) / 3_600_000;
@@ -350,8 +398,16 @@ export async function runMeetGroup(p: { meetingId: string; docId: string; docUrl
 
 /** Forget one meeting and read its notes doc again now (a doc read before Gemini finished, or notes edited by hand). */
 export async function rereadNoteDoc(fileId: string): Promise<string> {
-  const meta = await drive().files.get({ fileId, fields: "id,name,modifiedTime,owners(emailAddress),parents", supportsAllDrives: true });
-  const doc: NoteDoc = { id: fileId, name: meta.data.name ?? fileId, modifiedTime: meta.data.modifiedTime ?? new Date().toISOString(), owner: meta.data.owners?.[0]?.emailAddress ?? null, folder: null };
+  // Whoever can see the doc reads it: the organiser or any attendee on the team.
+  let doc: NoteDoc | null = null, lastError = "no team member can see this doc";
+  for (const as of await readers()) {
+    try {
+      const meta = await driveAs(as).files.get({ fileId, fields: "id,name,modifiedTime,owners(emailAddress),parents", supportsAllDrives: true });
+      doc = { id: fileId, name: meta.data.name ?? fileId, modifiedTime: meta.data.modifiedTime ?? new Date().toISOString(), owner: meta.data.owners?.[0]?.emailAddress ?? null, folder: null, as };
+      break;
+    } catch (e) { lastError = readerError(e); }
+  }
+  if (!doc) throw new Error(lastError);
   const old = await sql()`select id from meetings where drive_file_id = ${fileId}`;
   for (const m of old) {
     await sql()`delete from meeting_items where meeting_id = ${m.id}`;
@@ -415,9 +471,12 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
   // A trace before any slow step, so a run that is cut short still shows where it was.
   await save({ phase: "listing" });
   let docs: NoteDoc[] = [];
+  const readerErrors: Array<{ as: string; error: string }> = [];
   try {
     const since = await meetSince();
-    docs = (await findNoteDocs()).filter((d) => new Date(d.modifiedTime) > since);
+    docs = (await findNoteDocs(3, { errors: readerErrors })).filter((d) => new Date(d.modifiedTime) > since);
+    // A person the hub could not read as shows on health and in the brief, even when the others were fine.
+    for (const r of readerErrors) errors.push(`as ${r.as}: ${r.error}`);
   } catch (e) {
     // A failed Drive query must show on health and in the brief, not vanish.
     errors.push(`drive: ${(e as Error).message.slice(0, 200)}`);

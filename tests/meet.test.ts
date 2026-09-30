@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { meetingTitle, heldAtFrom, notesNotReady, headlineTitle, meetingHeadline, meetingTallyLine } from "../src/lib/meet";
+import { meetingTitle, heldAtFrom, notesNotReady, headlineTitle, meetingHeadline, meetingTallyLine, readerEmails, readerError } from "../src/lib/meet";
 
 describe("meeting headline", () => {
   it("names the call, whose it was and the day; the tally and notes link are the first reply", () => {
@@ -47,3 +47,16 @@ describe("meeting notes", () => {
     expect(heldAtFrom("no date here", "2026-09-10T10:00:00Z").toISOString().slice(0, 10)).toBe("2026-09-10");
   });
 });
+
+describe("whose Drives the hub reads (2026-09-30: no folder sharing)", () => {
+  it("every team member with a work address, the mailbox owner first, each once, outsiders never", () => {
+    const members = [{ email: "heena@mangoeyesagency.com" }, { email: null }, { email: "Arun@MangoEyesAgency.com" }, { email: "someone@gmail.com" }, { email: "vishnu@mangoeyesagency.com" }];
+    expect(readerEmails(members, "arun@mangoeyesagency.com", ["mangoeyesagency.com"])).toEqual(["arun@mangoeyesagency.com", "heena@mangoeyesagency.com", "vishnu@mangoeyesagency.com"]);
+    expect(readerEmails([], null, ["mangoeyesagency.com"])).toEqual([]);
+  });
+  it("says what to do when the Admin scope is missing", () => {
+    expect(readerError(new Error("unauthorized_client: Client is unauthorized to retrieve access tokens using this method"))).toContain("Google Admin");
+    expect(readerError(new Error("File not found"))).toBe("File not found");
+  });
+});
+

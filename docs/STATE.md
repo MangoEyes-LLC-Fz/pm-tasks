@@ -23,6 +23,13 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-30, Meet notes without folder sharing (Arun):** Meet kept creating new folders in organisers' Drives, so
+  folder sharing with the service account never caught up. Arun added the scope `drive.readonly` to the hub's
+  domain-wide delegation entry in Google Admin. The hub now reads Drive as each team member with a work address (team
+  record from the Pulp boards, plus the mailbox owner), one query per person every 5 minutes, read only; file ids dedupe
+  across people and `meetings.drive_file_id` keeps a meeting read once, so docs read earlier through shared folders are
+  never read again. The service account's own Drive view is gone; shared folders may stay or go. A person the hub cannot
+  read as is named in `meet_poll_last.errors` and on `meet-check`, with the Admin step spelt out.
 - **2026-09-30, mail copying the hub's group (Arun):** the hub is a member of `clientsuccess.team@mangoeyesagency.com`,
   which the team keeps in Cc on client threads. Found: a team member's mail that only copied the hub was dropped as
   "staff outgoing" (rule of 14 Sep), the group was not known as the hub, and the mailbox search relied on Gmail's
@@ -262,11 +269,9 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   the inside: original sender + body; quoted history dropped), noise-filtered (`emailNoise`), client resolved from
   subject/note prefix → original sender's domain → text, run through the pipeline as channel `email`, then labelled.
   `/api/gmail-check` proves the connection; `gmail_poll_last` on /api/health shows the last run.
-- **Meeting notes** (built 2026-09-10, untested until a folder is shared). Each organiser shares their Drive folder
-  "Meet Recordings" or "Google Meet" (Google made one or the other, per account and date) with the service account
-  once (Viewer); since 2026-09-11 the hub does not walk folders but queries every "… Notes by Gemini" doc it can
-  see at any depth, shortcuts resolved (Google's newer layout is "Google Meet/<meeting> - <date>/"), plus any doc shared
-  directly. Every 5 minutes (minute % 5 == 2) new docs from the last 3 days are read (max 3 per tick). One model call
+- **Meeting notes** (built 2026-09-10). Until 2026-09-30 each organiser shared their Drive folder with the service
+  account; now the hub reads Drive as each team member (domain-wide delegation, `drive.readonly`) and queries every
+  "… Notes by Gemini" doc at any depth, shortcuts resolved (Google's newer layout is "Google Meet/<meeting> - <date>/"). Every 5 minutes (minute % 5 == 2) new docs from the last 3 days are read (max 3 per tick). One model call
   (`sortMeeting`) sorts items into action / idea / decision / discussion and names the client per item (MangoEyes for
   internal). Actions go per client through the normal pipeline as channel `meet` (dedupe against open tasks, Staging
   card, feed line; no client → needs-a-person card); ideas 💡 and decisions 📌 are stored in `meeting_items` and get
