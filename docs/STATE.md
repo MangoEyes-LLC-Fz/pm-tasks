@@ -23,6 +23,14 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-30, five cards in one thread all carried the same "HC MedSpa rules" paragraph (Arun):** a team member's
+  email listed the clinic's own Lead Pipeline process under "Process rules"; the extractor sorted eight lines as client
+  rules, and the proposal card printed a client's rules on every card. Decided: (1) the confirmation card in Chat
+  carries no rules; the person deciding needs the task; (2) on the Pulp card the rules sit at the bottom under their own
+  heading, "How <client> wants us to work (standing rules, not part of this task)", apart from the ask; (3) a rule is
+  an instruction to MangoEyes on how to work with the client; the client's own process, even under a heading called
+  "rules", is a note (extract prompt and schema); (4) the eight HC MedSpa rules from that email deleted (one-time
+  statement in `db/schema.sql`). The 📌 thread line stays: one line when a rule is said.
 - **2026-09-30, a Slack ask sat with no outcome for an hour and the watchdog never touched it:** the watchdog's
   "already queued" check matched any pending queue job carrying the message id, and every client Slack message carries
   reply-check jobs for a day, so no client Slack message that died mid-run was ever retried. Fixed at the root: only a

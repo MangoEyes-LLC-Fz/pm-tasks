@@ -43,7 +43,7 @@ What is different
    Every idea comes back on Monday at 10:00 in one post: Make it a task, or Not now. An idea nobody decides on comes back the next Monday.
 
 5. A rule stays with the client.
-   "Ask my permission before changing appointment durations" is printed on every card for that client from now on.
+   "Ask my permission before changing appointment durations" is printed at the bottom of every Pulp card for that client from now on, under its own heading, apart from the task.
 
 6. One brief that means something.
    At 10:00 on weekdays the feed shows only what is waiting on a named person, with you @mentioned on yours. Nothing waiting, no post.

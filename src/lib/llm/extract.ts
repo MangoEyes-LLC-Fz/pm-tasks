@@ -6,7 +6,8 @@ import { structuredCall } from "./client";
  *   task     someone on the MangoEyes team has to produce something (a page change, design, ad, automation, content, video, report)
  *   reminder the sender asks to be reminded or to chase something later ("remind me tomorrow", "follow up on Friday")
  *   idea     a suggestion or future plan, not agreed, nothing to do now
- *   rule     a standing instruction on how to work with this client ("ask my permission before changing durations")
+ *   rule     a standing instruction to MangoEyes on how to work with this client ("ask my permission before changing durations");
+ *            the client's own way of working (their process, steps their staff follow) is a note, even when called "rules"
  *   note     information, an update, scheduling, access or logins, a link or material shared, something the client will do, conversation
  * Only a task can become a card, and only after a person confirms it.
  */
@@ -22,7 +23,7 @@ export const ExtractSchema = z.object({
   summary: z.array(z.string()).describe("2–5 bullet points, plain language, what the sender wants"),
   asks: z.array(
     z.object({
-      kind: AskKind.describe("task: a MangoEyes person must produce something; reminder: the sender wants to be reminded or to chase later; idea: a suggestion, not agreed; rule: a standing instruction on how to work with this client; note: information, scheduling, access, a link, the client's own to-do, or conversation").catch("note"),
+      kind: AskKind.describe("task: a MangoEyes person must produce something; reminder: the sender wants to be reminded or to chase later; idea: a suggestion, not agreed; rule: a standing instruction to MangoEyes on how to work with this client from now on; note: information, scheduling, access, a link, the client's own to-do or process, or conversation").catch("note"),
       ask: z.string().describe("One distinct item in one sentence"),
       quote: z.string().describe("The sender's exact words that support it"),
       deadline: z.string().nullable().describe("Any date or timing mentioned for a task, verbatim, else null"),
@@ -43,7 +44,7 @@ Split it into distinct items and give each one exactly one kind, written as one 
 - task: a MangoEyes person has to produce something: change a page, write content, design a graphic, run or change an ad, build an automation, edit a video, prepare a report. A stated problem is a task ("the Book Now button is not working" means fix it).
 - reminder: the sender asks to be reminded or to chase something later ("remind me tomorrow if he hasn't replied", "follow up with the GP on Friday").
 - idea: a suggestion or future plan that is not agreed and needs no work now ("we should do a CryoPen video at some point").
-- rule: a standing instruction on how to work with this client ("next time ask my permission before changing appointment durations", "always check landing pages before they go out").
+- rule: a standing instruction to MangoEyes on how to work with this client from now on ("next time ask my permission before changing appointment durations", "always check landing pages before they go out"). How the clinic runs its own work (the steps its staff follow, what the client will do day to day) is NOT a rule, even under a heading that says "rules": it is a note.
 - note: everything else: information, an update, a thank-you, a question in a conversation, scheduling ("move our meeting to Thursday"), access and logins granted or pending, a link or material shared ("look at this video", "photos added to Drive"), something the client will do themselves, feedback with nothing to change.
 Edits to the same page or the same deliverable are ONE task, listed as bullets in its sentence, not several tasks. Never split a single piece of work by sentence.
 Quote the sender's exact words for each item. Do not invent items that are not in the text.

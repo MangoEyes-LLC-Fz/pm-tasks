@@ -10,8 +10,8 @@ Clients (aesthetic clinics) ask for work through WhatsApp, email, Slack and meet
 from wherever it arrives, understands it, and sorts every item into one of five things: a task, a reminder, an idea, a
 rule or a note. A task is proposed in the feed as a card with four pre-filled dropdowns; one tap makes the Pulp card in
 To Do, assigned, and writes the row into the client's tab of the PM Overview sheet. A reminder comes back to the person
-who asked, at its time, until Done; an idea comes back on Monday for a decision; a rule is printed on that client's
-cards; a note is on record. The hub
+who asked, at its time, until Done; an idea comes back on Monday for a decision; a rule is printed at the bottom of that
+client's Pulp cards under its own heading; a note is on record. The hub
 keeps the row's Status in step with the card for the rest of its life, reports every event as one line in a Google
 Chat feed, and keeps the whole record so anyone can ask "what is pending for Abela" or "what happened on 12 March"
 from Claude. The team never types tasks by hand and nothing that comes in can leave without a visible trace.

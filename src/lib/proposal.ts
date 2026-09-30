@@ -3,7 +3,7 @@ import * as gchat from "./gchat";
 import { pulp } from "./pulp";
 import { boards as boardsConfig } from "./config";
 import { rememberThread, feedThreadKeyOf, senderUserOf, postText } from "./review";
-import { createFromProposal, rulesFor, HUB_LABEL } from "./tasks";
+import { createFromProposal, HUB_LABEL } from "./tasks";
 import { createReminder, daysFromNowMorning, mention } from "./reminders-util";
 import { parseWhen, whenLabel } from "./when";
 import type { Client, Message, Priority, Draft, RouteDecision } from "./types";
@@ -83,7 +83,6 @@ export async function postProposal(p: { requestId: string; client: Client | null
   const { people, assignee, dues, due, asked } = await storeProposal(p);
   const askedUser = asked.user;
   const askedName = asked.name;
-  const rules = p.client ? await rulesFor(p.client.id) : [];
   const threadKey = feedThreadKeyOf(p.message, p.messageId);
   if (!gchat.gchatConfigured()) {
     await postText(`Task to confirm: ${p.draft.title} · ${DEPT_LABEL[p.route.department] ?? p.route.department} · ${p.route.priority} · reply "create", "remind me" or "no card"`, { threadKey });
@@ -91,7 +90,7 @@ export async function postProposal(p: { requestId: string; client: Client | null
   }
   const card = gchat.proposalCard({
     requestId: p.requestId, askedName, askedUser, clientName: p.client?.name ?? "Unknown client", title: p.draft.title, description: p.draft.description, quote: p.quote,
-    departments: departmentOptions(), department: p.route.department, people, assignee, priority: p.route.priority, dues, due, remindOn: daysFromNowMorning(new Date(), 1).toISOString(), rules,
+    departments: departmentOptions(), department: p.route.department, people, assignee, priority: p.route.priority, dues, due, remindOn: daysFromNowMorning(new Date(), 1).toISOString(),
     urgentReason: p.route.priority === "P1" ? p.route.priorityReason : null,
   });
   const sent = await gchat.sendCard(gchat.reviewSpace(), card, `Task to confirm: ${p.draft.title}`, `prop-${p.requestId}`, threadKey);

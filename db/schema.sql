@@ -257,3 +257,6 @@ create table if not exists client_rules (
   said_by     text,
   said_at     timestamptz not null default now()
 );
+-- 2026-09-30: a team member's write-up of HC MedSpa's own Lead Pipeline process was stored as eight client rules and
+-- printed on every HC card; they were the clinic's process, not instructions to MangoEyes.
+delete from client_rules where message_id = '4e832971-7e83-4b34-84cc-f08108752f01';

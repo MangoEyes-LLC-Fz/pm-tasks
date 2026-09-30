@@ -20,7 +20,7 @@ Put the client first when the message does not say it: `HOH: the booking form is
 1. **The feed line is the receipt.** Every message gets one line in **Task Hub Feed** (📋). Nothing within 2 minutes → send it again.
 2. **Answer the hub in its thread.** "Which client?" → reply with the name, or `yes` to its suggestion. "Heard: …" on a voice note → if it misheard, reply with the correction and the card follows.
 3. **Say the client name in a voice note.** No name → the hub asks, nothing is filed until you answer.
-4. **Nothing vanishes, nothing becomes a card on its own.** Every message becomes one of five things: a **task** (the hub proposes a card, you confirm with one tap), a **reminder** ("remind me tomorrow": it comes back to you in the feed, @mentioned, until you press Done), an **idea** (comes back on Monday for a decision), a **rule** for a client (printed on their cards), or a **note** (on record, ℹ️ line). An unhappy client gets a ⚠️ line: a person replies to the client, the hub never does.
+4. **Nothing vanishes, nothing becomes a card on its own.** Every message becomes one of five things: a **task** (the hub proposes a card, you confirm with one tap), a **reminder** ("remind me tomorrow": it comes back to you in the feed, @mentioned, until you press Done), an **idea** (comes back on Monday for a decision), a **rule** for a client (an instruction to us, printed at the bottom of their Pulp cards under its own heading), or a **note** (on record, ℹ️ line). An unhappy client gets a ⚠️ line: a person replies to the client, the hub never does.
 5. **Do not send twice.** A repeat gets a 🔁 line pointing at the card that already exists. Add detail by replying in the feed thread or the DM thread; it lands on the card.
 
 ## PMs

@@ -116,22 +116,24 @@ export async function createStagingCard(p: { requestId: string; client: Client |
   return { id: ins[0].id as string, pulpCardId, boardId };
 }
 
-/** A client's standing rules, newest first, printed on their cards. */
+/** A client's standing rules, newest first, printed at the bottom of their Pulp cards under their own heading. */
 export async function rulesFor(clientId: string): Promise<string[]> {
   const rows = await sql()`select text from client_rules where client_id = ${clientId} order by said_at desc limit 8`;
   return rows.map((r) => String(r.text));
 }
 
 /** The card's description as the team reads it in Pulp: the draft, the original words, the source, the client's rules. */
-export function cardDescription(p: { draft: Draft; quote: string; channel: string; sender: string; permalink: string | null; requestId: string; rules: string[] }): string {
+export function cardDescription(p: { draft: Draft; quote: string; channel: string; sender: string; permalink: string | null; requestId: string; rules: string[]; clientName: string }): string {
   return [
     p.draft.description,
     "",
     `Original (${p.channel}, ${p.sender}):`,
     `> ${p.quote}`,
     p.permalink ? `Source: ${p.permalink}` : "",
-    p.rules.length ? `\nClient rules:\n${p.rules.map((r) => `- ${r}`).join("\n")}` : "",
     `Request: ${p.requestId}`,
+    // Standing rules sit apart from the task, at the bottom under their own heading, so nobody reads them as part of
+    // the ask (2026-09-30: printed inside the description, they read as five identical to-dos).
+    p.rules.length ? `\n----------\nHOW ${p.clientName.toUpperCase()} WANTS US TO WORK (standing rules, not part of this task):\n${p.rules.map((r) => `- ${r}`).join("\n")}` : "",
   ].filter((l) => l !== "").join("\n");
 }
 
@@ -151,7 +153,7 @@ export async function createFromProposal(p: { requestId: string; department: str
   if (!boardRef) throw new Error(`no board for department "${p.department}"`);
   const listName = def?.list || "To Do";
   const rules = x.client_id ? await rulesFor(String(x.client_id)) : [];
-  const description = cardDescription({ draft, quote: String(x.quote ?? ""), channel: String(x.channel), sender: String(x.sender ?? ""), permalink: (x.permalink as string | null) ?? null, requestId: p.requestId, rules });
+  const description = cardDescription({ draft, quote: String(x.quote ?? ""), channel: String(x.channel), sender: String(x.sender ?? ""), permalink: (x.permalink as string | null) ?? null, requestId: p.requestId, rules, clientName: x.client_name ? String(x.client_name) : "this client" });
   const labels = [HUB_LABEL, ...(x.client_name ? [String(x.client_name)] : []), ...(draft.labels ?? []).filter((l) => !/^P[123]$/.test(l)), p.priority];
 
   let cardId: string | null = null, boardId: string | null = null, listId: string | null = null;

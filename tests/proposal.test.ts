@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { departmentOptions, dueOptions, matchPerson, DEPT_LABEL } from "../src/lib/proposal";
+import { cardDescription } from "../src/lib/tasks";
 import { proposalCard, ideaCard, doneCard } from "../src/lib/gchat";
 import { mention } from "../src/lib/reminders-util";
 import { reminderLine } from "../src/lib/reminders";
@@ -34,7 +35,7 @@ describe("the proposal card", () => {
   it("has five visible dropdowns and three buttons, addressed to the person", () => {
     const card = proposalCard({
       requestId: "r1", askedName: "Heena Ganotra", askedUser: "users/123", clientName: "The SKIN Firm", title: "Update pricing for Hair Treatment", description: "Change the hair treatment prices on the pricing page.", quote: "MOST URGENT task is to get the pricing changed",
-      departments: departmentOptions(), department: "content", people: ["Anuj Laddha"], assignee: null, priority: "P1", dues: dueOptions(null, now).dues, due: dueOptions(null, now).due, remindOn: "2026-09-23T04:30:00.000Z", rules: ["Ask before changing durations"], urgentReason: "the sender said it is urgent",
+      departments: departmentOptions(), department: "content", people: ["Anuj Laddha"], assignee: null, priority: "P1", dues: dueOptions(null, now).dues, due: dueOptions(null, now).due, remindOn: "2026-09-23T04:30:00.000Z", urgentReason: "the sender said it is urgent",
     });
     const widgets = card.sections![0].widgets!;
     const dropdowns = widgets.filter((w) => w.selectionInput?.type === "DROPDOWN").map((w) => w.selectionInput!.name);
@@ -42,7 +43,7 @@ describe("the proposal card", () => {
     const buttons = widgets.find((w) => w.buttonList)!.buttonList!.buttons!.map((b) => b.text);
     expect(buttons).toEqual(["Create card", "Remind me instead", "No card"]);
     expect(JSON.stringify(widgets[0])).toContain("<users/123>: this needs your decision");
-    expect(JSON.stringify(widgets)).toContain("rules:");
+    expect(JSON.stringify(widgets)).not.toContain("rules");
     expect(JSON.stringify(widgets)).toContain("P1");
     expect(card.header?.title).toBe("The SKIN Firm · task to confirm");
   });
@@ -74,5 +75,14 @@ describe("reminders and Monday's ideas speak to a named person", () => {
     ];
     expect(ideasHeadline(ideas, new Date("2026-09-28T04:30:00Z"))).toBe("💡 PMs: 3 ideas waiting, 1 from earlier weeks. Decide which become tasks. · House Of Health 2 · The SKIN Firm 1");
     expect(ideasHeadline(ideas.slice(0, 1), new Date("2026-09-28T04:30:00Z"))).toBe("💡 PMs: 1 idea from last week. Decide which become tasks. · House Of Health 1");
+  });
+
+  it("the Pulp card keeps the client's standing rules apart, at the bottom under their own heading", () => {
+    const d = cardDescription({ draft: { title: "Update pricing", description: "Change the prices on the pricing page.", labels: [] }, quote: "please update the prices", channel: "slack", sender: "Fatima", permalink: null, requestId: "r1", rules: ["Ask before changing durations"], clientName: "HC MedSpa" });
+    const lines = d.split("\n");
+    expect(lines[0]).toBe("Change the prices on the pricing page.");
+    expect(d.indexOf("Request: r1")).toBeLessThan(d.indexOf("HOW HC MEDSPA WANTS US TO WORK (standing rules, not part of this task):"));
+    expect(lines[lines.length - 1]).toBe("- Ask before changing durations");
+    expect(cardDescription({ draft: { title: "t", description: "d", labels: [] }, quote: "q", channel: "slack", sender: "s", permalink: null, requestId: "r2", rules: [], clientName: "HC MedSpa" })).not.toContain("WANTS US TO WORK");
   });
 });

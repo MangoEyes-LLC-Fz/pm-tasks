@@ -245,7 +245,7 @@ export interface ProposalOptions {
   priority: "P1" | "P2" | "P3";
   dues: Array<{ value: string; text: string }>; due: string;
   remindOn: string;
-  rules: string[]; urgentReason: string | null;
+  urgentReason: string | null;
 }
 export function proposalCard(p: ProposalOptions): chat_v1.Schema$GoogleAppsCardV1Card {
   const who = p.askedUser && /^users\/\d+$/.test(p.askedUser) ? `<${p.askedUser}>` : p.askedName ? `@${esc(p.askedName)}` : "PMs";
@@ -254,7 +254,6 @@ export function proposalCard(p: ProposalOptions): chat_v1.Schema$GoogleAppsCardV
     { decoratedText: { topLabel: "Task", text: `<b>${esc(p.title)}</b>`, wrapText: true } },
     ...(p.description.trim() ? [{ textParagraph: { text: esc(p.description.slice(0, 600)) } }] : []),
     ...(p.urgentReason ? [{ textParagraph: { text: `🔴 <b>P1</b>: ${esc(p.urgentReason)}` } }] : []),
-    ...(p.rules.length ? [{ textParagraph: { text: `<b>${esc(p.clientName)} rules:</b> ${p.rules.map(esc).join(" · ")}` } }] : []),
     { selectionInput: { name: "department", label: "Department", type: "DROPDOWN", items: p.departments.map((d) => ({ text: d.text, value: d.value, selected: d.value === p.department })) } },
     { selectionInput: { name: "assignee", label: "Assign to", type: "DROPDOWN", items: [{ text: "choose…", value: "", selected: !p.assignee }, ...p.people.map((n) => ({ text: n, value: n, selected: n === p.assignee }))] } },
     { selectionInput: { name: "priority", label: "Priority", type: "DROPDOWN", items: (["P1", "P2", "P3"] as const).map((x) => ({ text: x === "P1" ? "P1 · urgent, due in 4 hours" : x === "P2" ? "P2 · normal" : "P3 · when there is time", value: x, selected: x === p.priority })) } },
