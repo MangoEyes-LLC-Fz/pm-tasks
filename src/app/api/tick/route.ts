@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cronAuthorized } from "@/lib/auth";
 import { sql, upsertClient, enqueue } from "@/lib/db";
 import { readConfigTab, sheetsConfigured } from "@/lib/sheets";
-import { pulp, isDoneList } from "@/lib/pulp";
+import { pulp, isDoneList, normList } from "@/lib/pulp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,8 +112,10 @@ export async function GET(req: Request) {
           errors.push(`card ${String(t.title).slice(0, 40)}: ${(error ?? "").slice(0, 160)}`); continue;
         }
         checked++;
-        // On an archived list (the old Staging lists, 2026-09-29) or closed: no longer waiting for anyone.
-        if (await pulp.cardArchived(card)) { await markCardArchived(String(t.id), card.closed ? "closed" : "archived list"); seen.push({ title: String(t.title).slice(0, 40), archived: true }); continue; }
+        // On an archived list (the old Staging lists, 2026-09-29) or closed: no longer waiting for anyone. A card still
+        // sitting in a live list named Staging is dead too (Arun, 2026-09-30: no Staging since 22 Sep; kill the rest).
+        const listNow = card.listName ?? (await pulp.listsOnBoard(card.boardId)).find((l) => l.id === card.listId)?.name ?? "";
+        if (await pulp.cardArchived(card) || normList(listNow) === "staging") { await markCardArchived(String(t.id), card.closed ? "closed" : "archived list"); seen.push({ title: String(t.title).slice(0, 40), archived: true }); continue; }
         const listName = card.listName ?? (await pulp.listsOnBoard(card.boardId)).find((l) => l.id === card.listId)?.name ?? card.listId;
         const done = isDoneList(listName);
         const boardChanged = !!card.boardId && card.boardId !== t.board_id;
@@ -211,6 +213,9 @@ export async function GET(req: Request) {
   // 5. Watchdog every 10 minutes: nothing stored may stay half-done, and nothing may fail quietly.
   if (new Date().getMinutes() % 10 === 5) {
     try { report.watchdog = await watchdog(); } catch (e) { report.watchdog = { error: (e as Error).message }; }
+    // Proposals nobody answered (5 working days, or made under the old rules) close here too, not only at 10:00,
+    // so a dead card never waits a day to leave the feed (Arun, 2026-09-30).
+    try { const { expireProposals } = await import("@/lib/morning"); report.expired = await expireProposals(); } catch (e) { report.expired = { error: (e as Error).message }; }
   }
 
   // Heartbeat for /api/health and uptime monitors.

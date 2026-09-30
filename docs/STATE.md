@@ -23,6 +23,12 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-30, the 10:00 post was still 101 items (Arun):** the 47 "on Heena" were not Staging cards but meeting to-dos
+  from her meetings of 25–29 Sep that nobody tapped, made under the old rules. Decided: (1) proposal expiry runs in the
+  minute loop every ten minutes, not only at 10:00, so dead proposals leave the feed the same hour; (2) a hub card
+  still sitting in any list named Staging is dead (no Staging since 22 Sep): archived for the hub, its request closed;
+  the 16 cards on Staging lists the team had not archived stop counting. The morning list holds only live proposals,
+  reminders due, clients waiting in Slack, cards waiting for a label, and overdue hub cards touched within 60 days.
 - **2026-09-30, the first morning after the audit:** four faults seen in `eod_last` and fixed at the root the same hour.
   (a) A comment placed inside the board-mirror insert's SQL text broke every new-card import overnight ("syntax error
   at or near card"): removed, with a note that nothing but SQL goes in that template. (b) The morning list named
