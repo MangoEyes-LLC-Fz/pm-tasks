@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "./config";
 import { sql } from "./db";
 import type { Client, Draft, Message, RouteDecision } from "./types";
+import { clientFromKnownPeople } from "./resolve";
 
 // ---- one app, many workspaces: a token per team_id ----
 
@@ -91,6 +92,13 @@ export async function slackUser(teamId: string | null, userId: string): Promise<
       on conflict (team_id, user_id) do update set email = excluded.email, is_staff = excluded.is_staff, is_bot = excluded.is_bot, seen_at = now()`;
   } catch { /* the settings row is the record; the table is kept for older readers */ }
   return u;
+}
+
+/** The client a mail sender belongs to, from the client people seen in their Slack workspaces (exact address, or a private domain of one client). */
+export async function clientFromKnownEmail(email: string, clients: Client[]): Promise<{ client: Client; how: string } | null> {
+  if (!email.includes("@")) return null;
+  const people = await sql()`select team_id, email from slack_users where email is not null and not is_staff and not is_bot`;
+  return clientFromKnownPeople(email, people.map((p) => ({ email: p.email as string | null, teamId: String(p.team_id) })), clients);
 }
 
 export async function isStaffUser(teamId: string | null, userId: string): Promise<boolean> {

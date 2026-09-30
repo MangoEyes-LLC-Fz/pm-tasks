@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveClientFromText, stripClientPrefix } from "../src/lib/resolve";
+import { resolveClientFromText, stripClientPrefix, clientFromKnownPeople } from "../src/lib/resolve";
 import type { Client } from "../src/lib/types";
 
 const c = (id: string, name: string, extra: Partial<Client> = {}): Client => ({
@@ -70,3 +70,28 @@ describe("correcting a misheard name", () => {
     expect(correctName("for a bella please change the hero", "a bella", "Abela")).toBe("for Abela please change the hero");
   });
 });
+
+describe("a mail sender the hub knows from a client's Slack (2026-09-30)", () => {
+  const cs = [
+    c("hc", "HC MedSpa", { slackTeamId: "T_HC" }),
+    c("lms", "Leicester MediSpa", { slackTeamId: "T_LMS" }),
+    c("noslack", "No Slack Yet"),
+  ];
+  const people = [
+    { email: "fatima@hcmedspa.com", teamId: "T_HC" },
+    { email: "kim@hcmedspa.com", teamId: "T_HC" },
+    { email: "hanah@gmail.com", teamId: "T_LMS" },
+    { email: "shared@bothclinics.com", teamId: "T_HC" },
+    { email: "other@bothclinics.com", teamId: "T_LMS" },
+    { email: null, teamId: "T_HC" },
+  ];
+  it("exact address wins", () => expect(clientFromKnownPeople("Fatima@HCMedSpa.com", people, cs)).toMatchObject({ client: { id: "hc" }, how: "known_person" }));
+  it("a private domain seen on one client's people is that client", () => expect(clientFromKnownPeople("newperson@hcmedspa.com", people, cs)).toMatchObject({ client: { id: "hc" }, how: "known_domain" }));
+  it("a public mail domain says nothing", () => expect(clientFromKnownPeople("someone@gmail.com", people, cs)).toBeNull());
+  it("a domain shared by two clients' people is not clarity", () => expect(clientFromKnownPeople("x@bothclinics.com", people, cs)).toBeNull());
+  it("no address, or a workspace no client owns, gives nothing", () => {
+    expect(clientFromKnownPeople("not an address", people, cs)).toBeNull();
+    expect(clientFromKnownPeople("a@b.com", [{ email: "a@b.com", teamId: "T_UNKNOWN" }], cs)).toBeNull();
+  });
+});
+

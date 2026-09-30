@@ -45,4 +45,4 @@ same for a browser.
 
 ## Checks before pushing
 
-`npx tsc --noEmit` and `npx vitest run` (162 tests). Vercel deploys the branch in about two minutes.
+`npx tsc --noEmit` and `npx vitest run` (167 tests). Vercel deploys the branch in about two minutes.

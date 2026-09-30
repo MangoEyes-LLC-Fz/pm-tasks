@@ -18,6 +18,10 @@ mirrored so Claude can answer about all of them; the 10:00 India post names what
 
 ## What changed on 2026-09-30 (this session), newest first
 
+0. **A client's mail resolves through people the hub knows.** Fatima's mail from hcmedspa.com asked "which client?"
+   because the Config row has no domain. The mail reader now also matches the sender against client people seen in the
+   Slack workspaces (exact address, or a private domain of one client). *Arun's side, optional:* fill `email_domains`
+   in the Config tab (HC MedSpa: hcmedspa.com) for clients that write from their own domain.
 1. **Meet notes without folder sharing.** The hub reads Drive as each team member (domain-wide delegation, scope
    `drive.readonly`, added by Arun in Google Admin). No folder is shared any more; `meet-check` lists whose Drives are
    read and whether each can be read. *Proven* the same evening: 38 docs found across the team. Addresses on the Pulp
@@ -57,7 +61,7 @@ for hand-made cards and the PMs board like every board; 23 Sep cards from Claude
 - Archive one of the two "Finalise model for endolift training session" cards in Pulp (a duplicate made before the
   twin-title collapse; the hub cannot archive cards).
 - Add a client label to the 13 waiting hand-made cards (Video, Graphics); each gets its sheet row within five minutes.
-- Config tab: delete the row "Lester Medispa"; add alias "HC Medi Spa" to HC MedSpa and "LMS" to Leicester MediSpa.
+- Config tab: delete the row "Lester Medispa"; add alias "HC Medi Spa" to HC MedSpa and "LMS" to Leicester MediSpa; fill `email_domains` for clients that mail from their own domain (HC MedSpa: hcmedspa.com).
 - Neon: pin compute to 0.25 CU (the hub polls every minute, so the database never sleeps; the paid plan is right, the
   size is the only cost lever).
 - Google Group clientsuccess.team@: confirm it delivers to members and that taskhub@/arun@ is a member.

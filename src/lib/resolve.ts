@@ -105,6 +105,28 @@ export function resolveClientFromText(text: string, clients: Client[]): { client
  * True when nothing but the client's name (or alias) and filler words is left.
  */
 const NAME_FILLER = new Set(["this", "is", "for", "its", "it", "client", "the", "from", "message", "below", "above", "one", "that", "a", "an", "of", "and", "please", "re"]);
+/** Mail domains anyone can have: a match on these says nothing about the client. */
+const PUBLIC_MAIL_DOMAINS = new Set(["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "hotmail.co.uk", "live.com", "live.co.uk", "yahoo.com", "yahoo.co.uk", "icloud.com", "me.com", "mac.com", "aol.com", "protonmail.com", "proton.me", "msn.com"]);
+
+/**
+ * The client a sender belongs to, from the people the hub already knows in the clients' Slack workspaces (2026-09-30:
+ * a mail from fatima@hcmedspa.com asked "which client?" because the Config row had no domain). Exact address first;
+ * else the address's domain when it is a private domain seen on people of exactly one client. Full clarity or nothing.
+ */
+export function clientFromKnownPeople(email: string, people: Array<{ email: string | null; teamId: string }>, clients: Client[]): { client: Client; how: string } | null {
+  const e = email.trim().toLowerCase();
+  if (!e.includes("@")) return null;
+  const byTeam = new Map(clients.filter((c) => c.slackTeamId).map((c) => [c.slackTeamId as string, c]));
+  const known = people.filter((p) => p.email && byTeam.has(p.teamId)).map((p) => ({ email: (p.email as string).toLowerCase(), client: byTeam.get(p.teamId)! }));
+  const exact = known.find((p) => p.email === e);
+  if (exact) return { client: exact.client, how: "known_person" };
+  const domain = e.split("@")[1];
+  if (!domain || PUBLIC_MAIL_DOMAINS.has(domain)) return null;
+  const owners = new Set(known.filter((p) => p.email.endsWith("@" + domain)).map((p) => p.client.id));
+  if (owners.size !== 1) return null;
+  return { client: clients.find((c) => c.id === [...owners][0])!, how: "known_domain" };
+}
+
 export function isNameOnly(text: string, client: Client): boolean {
   let t = text.toLowerCase();
   for (const n of [client.name, client.id, ...(client.aliases ?? [])].sort((a, b) => b.length - a.length)) t = t.replace(wholeWord(norm(n)), " ");

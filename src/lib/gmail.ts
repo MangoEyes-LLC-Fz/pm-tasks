@@ -1,5 +1,6 @@
 import { google, type gmail_v1 } from "googleapis";
 import { resolveClientFromText, stripClientPrefix } from "./resolve";
+import { clientFromKnownEmail } from "./slack";
 import { emailNoise, splitQuotedHistory } from "./filter/noise";
 import { noise as noiseConfig } from "./config";
 import { allClients, enqueue, sql } from "./db";
@@ -239,9 +240,11 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
 
   const verdict = emailNoise({ from: senderEmail, fromIsStaff: senderIsStaff, isForward: mail.isForward, headers: mail.headers, text: composed }, noiseConfig());
 
-  // Client: the subject/note ("HOH: ...", "[PSS]"), the original sender's domain, then the forwarder's note text.
+  // Client: the subject/note ("HOH: ...", "[PSS]"), the sender's domain from the Config row, the sender as a person the
+  // hub knows from a client's Slack workspace (or their private domain, 2026-09-30), then the note text.
   const hit = resolveClientFromText(`${subjectClean}\n${mail.note}`, clients)
     ?? resolveClientFromText(senderEmail, clients)
+    ?? (senderIsStaff ? null : await clientFromKnownEmail(senderEmail, clients))
     ?? resolveClientFromText(composed.slice(0, 400), clients);
   // A misheard name in a voice note is a suggestion on the "which client?" card, never a decision.
   const fuzzy = !hit && voice ? fuzzyClientFromText(composed.slice(0, 600), clients) : null;

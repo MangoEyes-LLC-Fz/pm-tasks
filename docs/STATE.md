@@ -23,6 +23,11 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-30, a client's mail asked "which client?" (Arun):** fatima@hcmedspa.com wrote to the team with the group in
+  Cc; the Config row for HC MedSpa carries no email domain, so the sender's domain matched nothing. The Config column
+  still works, but the hub now also knows client people from their Slack workspaces: a mail sender is matched by exact
+  address, or by a private domain seen on one client's people only (public domains such as gmail.com never count;
+  a domain shared by two clients is not clarity). `clientFromKnownPeople` in `resolve.ts`, used by the mail reader.
 - **2026-09-30, Meet notes without folder sharing (Arun):** Meet kept creating new folders in organisers' Drives, so
   folder sharing with the service account never caught up. Arun added the scope `drive.readonly` to the hub's
   domain-wide delegation entry in Google Admin. The hub now reads Drive as each team member with a work address (team
