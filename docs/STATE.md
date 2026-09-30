@@ -23,6 +23,12 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   mirrored, title filled from the card). Added: `from`/`to` calendar days on every MCP look-back tool. Handover:
   `docs/GUIDE.md` (one page per role), `docs/OPS.md` (operations), `docs/TEAM-BRIEF.md` (the message for the feed),
   `docs/POST-LAUNCH.md` (what is left to watch and what could come next).
+- **2026-09-30, old meetings flooding the feed after the Drive change (Arun):** reading as every team member met the
+  three-day window, so 38 docs were found and 27 old meetings started appearing two per run. Decided: a Drive view
+  counts from the hub's first read of it (`meet_reader_since:<email>`, set on the first successful read), never
+  earlier; the global `meet_since` watermark stays. On deploy every current view gets its first-read stamp, so the
+  pending backlog stops and a new team member's Drive never brings old meetings. `meet-check` still lists the whole
+  14-day window for diagnosis. Threads already posted for old meetings stay in the feed; nothing is deleted.
 - **2026-09-30, a client's mail asked "which client?" (Arun):** fatima@hcmedspa.com wrote to the team with the group in
   Cc; the Config row for HC MedSpa carries no email domain, so the sender's domain matched nothing. The Config column
   still works, but the hub now also knows client people from their Slack workspaces: a mail sender is matched by exact

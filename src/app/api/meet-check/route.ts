@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     const errors: Array<{ as: string; error: string }> = [];
     const skipped: Array<{ as: string; why: string }> = [];
     let docs: Awaited<ReturnType<typeof findNoteDocs>> = [];
-    try { docs = await findNoteDocs(14, { errors, skipped }); } catch (e) { errors.push({ as: "*", error: (e as Error).message.slice(0, 200) }); }
+    try { docs = await findNoteDocs(14, { errors, skipped, wholeWindow: true }); } catch (e) { errors.push({ as: "*", error: (e as Error).message.slice(0, 200) }); }
     const out: Record<string, unknown> = {
       ok: coverage.some((c) => c.ok),
       readsDriveAs: coverage,

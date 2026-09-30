@@ -71,6 +71,18 @@ export const readerError = (e: unknown): string => readerProblem(e).message;
 
 const READER_OFF_HOURS = 24;
 const readerOffKey = (as: string) => `meet_reader_off:${as}`;
+const readerSinceKey = (as: string) => `meet_reader_since:${as}`;
+
+/**
+ * Pure: the moment a Drive view starts counting. A view read for the first time starts now, so the meetings that were
+ * already in that Drive are never a backlog (2026-09-30: reading as every team member surfaced 27 old meetings in the
+ * feed). Otherwise the window is the last `days` days, never earlier than the first read.
+ */
+export function viewWindowStart(now: Date, days: number, firstRead: Date | null): Date {
+  const window = new Date(now.getTime() - days * 86_400_000);
+  if (!firstRead) return now;
+  return firstRead > window ? firstRead : window;
+}
 
 const NOTES_TITLE = /\s*[-–—]\s*(Notes by Gemini|Gemini notes|notes)\s*$/i;
 const TRANSCRIPT_TITLE = /\s*[-–—]\s*transcript\s*$/i;
@@ -85,17 +97,25 @@ export interface NoteDoc { id: string; name: string; modifiedTime: string; owner
  * target; the same doc through several people is one doc. A person the hub cannot read as is reported, never fatal;
  * only when nobody can be read is the poll a failure.
  */
-export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string; error: string }>; skipped?: Array<{ as: string; why: string }>; readers?: string[] } = {}): Promise<NoteDoc[]> {
+export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string; error: string }>; skipped?: Array<{ as: string; why: string }>; readers?: string[]; /** meet-check: the whole window, not only since each view's first read */ wholeWindow?: boolean } = {}): Promise<NoteDoc[]> {
   const people = opts.readers ?? await readers();
   if (!people.length) throw new Error("no team member with a work address to read Drive as");
   const out = new Map<string, NoteDoc>();
   let okCount = 0;
   // Addresses that are not Google accounts are set aside for a day (settings `meet_reader_off:<email>` holds until when).
   const off = new Map((await sql()`select key, value from settings where key like 'meet_reader_off:%'`).map((r) => [String(r.key).slice("meet_reader_off:".length), new Date(String(r.value))]));
+  // Each view counts from its first read (settings `meet_reader_since:<email>`): a Drive that becomes readable brings no backlog.
+  const firstRead = new Map((await sql()`select key, value from settings where key like 'meet_reader_since:%'`).map((r) => [String(r.key).slice("meet_reader_since:".length), new Date(String(r.value))]));
+  const now = new Date();
   for (const as of people) {
     const until = off.get(as);
-    if (until && until > new Date()) { opts.skipped?.push({ as, why: `no such Google account on the domain; tried again after ${until.toISOString().slice(0, 16)}Z` }); continue; }
-    try { for (const doc of await findNoteDocsAs(as, days)) if (!out.has(doc.id)) out.set(doc.id, doc); okCount++; }
+    if (until && until > now) { opts.skipped?.push({ as, why: `no such Google account on the domain; tried again after ${until.toISOString().slice(0, 16)}Z` }); continue; }
+    const start = opts.wholeWindow ? new Date(now.getTime() - days * 86_400_000) : viewWindowStart(now, days, firstRead.get(as) ?? null);
+    try {
+      for (const doc of await findNoteDocsAs(as, start)) if (!out.has(doc.id)) out.set(doc.id, doc);
+      okCount++;
+      if (!firstRead.has(as)) await sql()`insert into settings (key, value) values (${readerSinceKey(as)}, ${JSON.stringify(now.toISOString())}::jsonb) on conflict (key) do nothing`;
+    }
     catch (e) {
       const p = readerProblem(e);
       if (p.kind === "no_account") {
@@ -108,9 +128,9 @@ export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string
   return [...out.values()].sort((a, b) => a.modifiedTime.localeCompare(b.modifiedTime));
 }
 
-async function findNoteDocsAs(as: string, days: number): Promise<NoteDoc[]> {
+async function findNoteDocsAs(as: string, start: Date): Promise<NoteDoc[]> {
   const d = driveAs(as);
-  const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
+  const since = start.toISOString();
   const out = new Map<string, NoteDoc>();
   const parentNames = new Map<string, string>();
   const folderName = async (id: string | undefined): Promise<string | null> => {

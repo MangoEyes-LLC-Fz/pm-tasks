@@ -18,6 +18,9 @@ mirrored so Claude can answer about all of them; the 10:00 India post names what
 
 ## What changed on 2026-09-30 (this session), newest first
 
+00. **Old meetings stopped.** Reading as everyone surfaced 27 meetings from the last three days; from this deploy a
+   Drive view counts from its first read, so the backlog stops and no new Drive ever brings old meetings. Threads
+   already posted stay.
 0. **A client's mail resolves through people the hub knows.** Fatima's mail from hcmedspa.com asked "which client?"
    because the Config row has no domain. The mail reader now also matches the sender against client people seen in the
    Slack workspaces (exact address, or a private domain of one client). *Arun's side, optional:* fill `email_domains`
@@ -51,7 +54,7 @@ for hand-made cards and the PMs board like every board; 23 Sep cards from Claude
 ## Being watched (proofs that need real traffic)
 
 - Tomorrow's 10:00 India post: short, named people only, `eod_last.expired` counting the old-rule proposals closed.
-- The Meet reader as each team member: proven 18:35 UTC (38 docs found, the backlog of the last three days read two per run). Seven Pulp board members have addresses that are not Google accounts; they show under `meet_poll_last.skipped`, retried daily, never an issue.
+- The Meet reader as each team member: proven 18:35 UTC (38 docs found); the three-day backlog it started reading was stopped the same evening (each view counts from its first read). Seven Pulp board members have addresses that are not Google accounts; they show under `meet_poll_last.skipped`, retried daily, never an issue.
 - The group-Cc mail path: a no-ask reply shows in `recent_messages` as `no_ask` with nothing in the feed.
 - Slack proposals @mentioning the person the client tagged; meeting threads showing "Follow-ups, no card".
 - Hand-made cards without a client label: 11 on the Video board, 2 on Graphics, waiting (`board_mirror_last.waitingLabel`).

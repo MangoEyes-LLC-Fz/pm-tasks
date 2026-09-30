@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { meetingTitle, heldAtFrom, notesNotReady, headlineTitle, meetingHeadline, meetingTallyLine, readerEmails, readerError, readerProblem } from "../src/lib/meet";
+import { meetingTitle, heldAtFrom, notesNotReady, headlineTitle, meetingHeadline, meetingTallyLine, readerEmails, readerError, readerProblem, viewWindowStart } from "../src/lib/meet";
 
 describe("meeting headline", () => {
   it("names the call, whose it was and the day; the tally and notes link are the first reply", () => {
@@ -62,5 +62,12 @@ describe("whose Drives the hub reads (2026-09-30: no folder sharing)", () => {
     expect(gone.message).toContain("tried again tomorrow");
     expect(readerProblem(new Error("File not found"))).toEqual({ kind: "other", message: "File not found" });
   });
+});
+
+describe("a Drive view counts from its first read (2026-09-30: no backlog when a Drive becomes readable)", () => {
+  const now = new Date("2026-09-30T19:00:00Z");
+  it("first read: from now, nothing older", () => expect(viewWindowStart(now, 3, null).toISOString()).toBe("2026-09-30T19:00:00.000Z"));
+  it("read yesterday: from yesterday, not three days back", () => expect(viewWindowStart(now, 3, new Date("2026-09-29T19:00:00Z")).toISOString()).toBe("2026-09-29T19:00:00.000Z"));
+  it("read long ago: the normal three-day window", () => expect(viewWindowStart(now, 3, new Date("2026-09-01T00:00:00Z")).toISOString()).toBe("2026-09-27T19:00:00.000Z"));
 });
 
