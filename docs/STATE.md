@@ -29,7 +29,11 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   queued `process_message` re-run counts. Sibling: nothing said why the run had died (the Slack handler keeps only the
   last event), so a run that dies now writes `lastError` and `failedAt` on the message, and `hub_status` shows them
   under `stuckMessages` with the retry count. The watchdog re-runs such a message three times, then marks it failed
-  with a feed line, as designed on 15 Sep.
+  with a feed line, as designed on 15 Sep. The recorded reason then showed why the run died: the model had answered
+  kind "explanation" for a client's question, and the format sent to the model describes an option list but cannot
+  enforce it, so the strict parse threw the whole answer away, six times. Every option list the model fills now falls
+  back to its safe value (note, neutral, general, P3, discussion, agency) and the extract prompt names the five words;
+  `tests/llm-schema.test.ts` proves the fallbacks and that the lists still reach the model.
 - **2026-09-30, the 10:00 post was still 101 items (Arun):** the 47 "on Heena" were not Staging cards but meeting to-dos
   from her meetings of 25–29 Sep that nobody tapped, made under the old rules. Decided: (1) proposal expiry runs in the
   minute loop every ten minutes, not only at 10:00, so dead proposals leave the feed the same hour; (2) a hub card

@@ -3,13 +3,13 @@ import { structuredCall } from "./client";
 
 export const ClassifySchema = z.object({
   request_type: z.string().describe("One of the request type keys given in the system prompt"),
-  department: z.enum(["dev", "content", "design", "seo", "automation", "video", "general", "internal"]),
-  priority_hint: z.enum(["P1", "P2", "P3"]).describe("P1 only for revenue-affecting breakage; P3 default"),
+  department: z.enum(["dev", "content", "design", "seo", "automation", "video", "general", "internal"]).catch("general"),
+  priority_hint: z.enum(["P1", "P2", "P3"]).describe("P1 only for revenue-affecting breakage; P3 default").catch("P3"),
   priority_reason: z.string().nullable(),
   confidence: z.number().min(0).max(1).describe("How sure you are of request_type and department"),
   confidence_reason: z.string().describe("One sentence"),
   same_as_open: z.number().nullable().describe("Index into the open-requests list if this is the same ask, else null"),
-  same_as_kind: z.enum(["duplicate", "nudge", "change"]).nullable().describe("If same_as_open is set: duplicate = repeat; nudge = 'any update?'; change = alters the existing ask"),
+  same_as_kind: z.enum(["duplicate", "nudge", "change"]).nullable().describe("If same_as_open is set: duplicate = repeat; nudge = 'any update?'; change = alters the existing ask").catch(null),
   title: z.string().describe("Board card title, under 80 characters, starts with a verb"),
   description: z.string().describe("2–6 lines for the person doing the work. Include the quote and any URLs/deadline."),
   labels: z.array(z.string()),

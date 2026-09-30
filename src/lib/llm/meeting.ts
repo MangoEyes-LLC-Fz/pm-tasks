@@ -9,12 +9,12 @@ export const MeetingSchema = z.object({
   meeting_client: z.string().nullable().describe("The client this meeting was mainly about, by name from the list, or 'MangoEyes' for an internal meeting, or null if unclear"),
   summary: z.array(z.string()).describe("2–5 bullet points: what the meeting was about and what was agreed"),
   items: z.array(z.object({
-    kind: z.enum(["action", "idea", "decision", "discussion"]).describe("action = someone has to do something; idea = a suggestion or future plan, not yet agreed; decision = something agreed that changes how work is done; discussion = talked about, nothing to do"),
+    kind: z.enum(["action", "idea", "decision", "discussion"]).describe("action = someone has to do something; idea = a suggestion or future plan, not yet agreed; decision = something agreed that changes how work is done; discussion = talked about, nothing to do").catch("discussion"),
     text: z.string().describe("One sentence, plain, in the speaker's words as far as possible"),
     client: z.string().nullable().describe("Client name from the list this item belongs to, 'MangoEyes' for the agency itself, or null if unclear"),
     owner: z.string().nullable().describe("Who is to do it, if said"),
     work: z.boolean().describe("For an agency action: true when someone must produce something (build, write, design, edit, set up, run, fix, report, prepare); false when it is coordination or follow-up (schedule or hold a call, sync with someone, review or look into, discuss, document internally, add to a list, remind, chase, check). For ideas, decisions, discussion and client actions use false."),
-    side: z.enum(["agency", "client"]).describe("Who does it: agency = a MangoEyes person, 'we', 'the team' (the agency does the marketing, website, content, design, ads, reporting, scheduling and sending); client = someone on the client's side (signing, granting access, sending materials or photos, confirming dates, providing people, deciding). For ideas, decisions and discussion use agency."),
+    side: z.enum(["agency", "client"]).describe("Who does it: agency = a MangoEyes person, 'we', 'the team' (the agency does the marketing, website, content, design, ads, reporting, scheduling and sending); client = someone on the client's side (signing, granting access, sending materials or photos, confirming dates, providing people, deciding). For ideas, decisions and discussion use agency.").catch("agency"),
     due: z.string().nullable().describe("Any timing mentioned, verbatim"),
   })),
 });

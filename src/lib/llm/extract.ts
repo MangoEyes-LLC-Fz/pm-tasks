@@ -13,11 +13,16 @@ import { structuredCall } from "./client";
 export const AskKind = z.enum(["task", "reminder", "idea", "rule", "note"]);
 export type AskKindT = z.infer<typeof AskKind>;
 
+/**
+ * The output format sent to the model describes each option list but cannot enforce it, so a model answer can carry a
+ * word outside it ("explanation" for kind, 2026-09-30: one Slack ask was thrown away six times over that). An unknown
+ * option becomes the safe one (note, neutral) instead of failing the message; the rest of the answer is kept.
+ */
 export const ExtractSchema = z.object({
   summary: z.array(z.string()).describe("2–5 bullet points, plain language, what the sender wants"),
   asks: z.array(
     z.object({
-      kind: AskKind.describe("task: a MangoEyes person must produce something; reminder: the sender wants to be reminded or to chase later; idea: a suggestion, not agreed; rule: a standing instruction on how to work with this client; note: information, scheduling, access, a link, the client's own to-do, or conversation"),
+      kind: AskKind.describe("task: a MangoEyes person must produce something; reminder: the sender wants to be reminded or to chase later; idea: a suggestion, not agreed; rule: a standing instruction on how to work with this client; note: information, scheduling, access, a link, the client's own to-do, or conversation").catch("note"),
       ask: z.string().describe("One distinct item in one sentence"),
       quote: z.string().describe("The sender's exact words that support it"),
       deadline: z.string().nullable().describe("Any date or timing mentioned for a task, verbatim, else null"),
@@ -28,13 +33,13 @@ export const ExtractSchema = z.object({
     })
   ),
   is_request: z.boolean().describe("true when at least one item is a task"),
-  tone: z.enum(["neutral", "unhappy", "urgent"]).describe("unhappy: the sender is displeased, complaining or frustrated (\"too little too late\", \"this is unacceptable\"); urgent: they say it is urgent; else neutral"),
+  tone: z.enum(["neutral", "unhappy", "urgent"]).describe("unhappy: the sender is displeased, complaining or frustrated (\"too little too late\", \"this is unacceptable\"); urgent: they say it is urgent; else neutral").catch("neutral"),
   needs_reply: z.boolean().describe("true when the sender is waiting for an answer from the agency: a question, a request, a complaint, an update they want confirmed. false when the message closes the exchange: thanks, \"done\", \"received\", \"perfect, that works now\", \"ok noted\""),
 });
 export type Extraction = z.infer<typeof ExtractSchema>;
 
 const INSTRUCTIONS = `You read one message sent to a digital marketing agency (MangoEyes: websites, content, design, SEO, paid ads, CRM automations, video for clinics) by a client or a team member.
-Split it into distinct items and give each one exactly one kind:
+Split it into distinct items and give each one exactly one kind, written as one of these five words only: task, reminder, idea, rule, note.
 - task: a MangoEyes person has to produce something: change a page, write content, design a graphic, run or change an ad, build an automation, edit a video, prepare a report. A stated problem is a task ("the Book Now button is not working" means fix it).
 - reminder: the sender asks to be reminded or to chase something later ("remind me tomorrow if he hasn't replied", "follow up with the GP on Friday").
 - idea: a suggestion or future plan that is not agreed and needs no work now ("we should do a CryoPen video at some point").
