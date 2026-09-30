@@ -1,26 +1,29 @@
-# After go-live — when wanted
+# After go-live — what still proves itself, and what could come next
 
-Each item is about an hour unless noted. None is needed for the hub to run.
+Current as of 2026-09-30. The live status page is `docs/NOW.md`; this page holds only what is not yet proven on real
+traffic and the ideas that were deliberately left for later. None of the ideas is needed for the hub to run.
 
 ## Still to prove on real traffic (no work, just watch)
 
-- Slack: first real client message in a client channel → feed line, card (A9, A10). Reminder after 20 minutes of silence, naming who was tagged (C4).
-- Google Meet: next real client call with Gemini notes → one headline in the feed, cards in its thread (A11).
 - A voice note longer than 10 minutes (the long path is built; the longest verified is 163 seconds).
-- The first daily brief at 23:00 (C3).
+- The Meet reader as each team member (built 2026-09-30): the next meeting from an organiser who never shared a folder.
+- Mail with the group clientsuccess.team@ in Cc (built 2026-09-30): a no-ask reply stays out of the feed, an ask
+  becomes a card to confirm for the sender.
+- The 10:00 post after the expiry change (2026-09-30): short, named people only.
 
-## Small improvements
+## Ideas left for later (none started)
 
-- **Per-user sign-in for the Drop space** instead of domain-wide delegation: each reader authorises once; narrower than reading as Arun.
+- **Per-user sign-in for the Drop space** instead of domain-wide delegation as arun@.
 - **Duplicate-send guard**: if people double-send in bursts, hold the second copy for a minute instead of a 🔁 line.
-- **Merged messages in `recent_messages`**: a follow-up that became a card comment shows 0 tasks and no reason; show "added to card" instead.
-- **Health page pretty print** so it reads without the browser checkbox.
+- **Weekly per-client digest** in the feed (or by mail to the client lead).
+- **Platform alerts creating proposals by themselves**: ad disapproved, form down, site down.
+- **Workspace Events API for Chat spaces** (push instead of the 20-second read), if Google's quota or latency ever matters.
+- **Feed links** (proposed 2026-09-30, awaiting Arun): "open the card" on 🔁 lines; morning-list items linking to their thread.
 
-## Bigger pieces
+## Decided against (kept so it is not asked again)
 
-- Weekly per-client digest in the feed (or by mail to the client lead).
-- Approval-loop nudges: a Staging card older than two days pings its board's PM.
-- Auto-move Staging → To Do with an assignee rule (who to assign was left undecided).
-- Board watcher: cards made in Pulp without a sheet row get one automatically (today the PM pastes the link).
-- Platform alerts creating cards by themselves: ad disapproved, form down, site down.
-- Workspace Events API for Chat spaces (push instead of the 20-second read), if Google's quota or latency ever matters.
+- A Staging list, client or internal boards, a Needs-scope gate: dropped 2026-09-15 and 2026-09-22; the proposal card
+  in the feed is the inbox and one tap makes the card in To Do.
+- Auto-moving cards or assigning without a person: never; only a person's tap creates or moves a card.
+- Client rules on the confirmation card: removed 2026-09-30; they live at the bottom of the Pulp card only.
+- The hub writing anything in a client's Slack (replies, reactions): never; the feed is the receipt.

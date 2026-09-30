@@ -384,12 +384,12 @@ Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind m
   send "we want a new landing page for Botox" in Intake, expect the card under Needs scope on Development.
 - Unit tests: 73 passing (`npm test`). Build clean.
 
-## Open items (as of 2026-09-15, go-live day)
+## Open items
 
-Everything from the build and soak is closed. What remains proves itself on real traffic: the first client message in
-a Slack channel (feed line, card, reply reminders), the next real Meet call with Gemini notes, a voice note over 10
-minutes, and the first daily brief. Arun's remaining housekeeping: remove the old `intake@` alias once the team uses
-`taskhub@`; rename the Pulp list "Dependancy" to "Dependency". Ideas for later are in `docs/POST-LAUNCH.md`.
+The current list lives in `docs/NOW.md` (rewritten at the end of every session): what is being watched, what waits on
+Arun, what awaits his go. Go-live day's items (2026-09-15) were: the first client Slack message, the next Meet call, a
+voice note over 10 minutes, the first brief (all seen since); remove the old `intake@` alias once the team uses
+`taskhub@`; rename the Pulp list "Dependancy" to "Dependency".
 
 Older items, all done: Config tab (15 clients), Chat live tests, Pulp key and Staging lists, duplicate To Do lists
 archived, mailbox named, Slack installed per client workspace by Arun, new-page chain dropped, uptime monitor set,

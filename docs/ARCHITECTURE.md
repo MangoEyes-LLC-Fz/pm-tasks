@@ -1,6 +1,6 @@
 # MangoEyes Task Hub — the whole system, as it runs today
 
-Current as of 2026-09-15 (go-live). This is the one document that describes the complete infrastructure and the complete
+Current as of 2026-09-30. `docs/NOW.md` says where things stand today. This is the one document that describes the complete infrastructure and the complete
 concept, end to end. `docs/STATE.md` holds the dated decisions and IDs behind it; `docs/FEATURES.md` is the row-by-row
 register with statuses. Where an older document differs, this one and STATE.md win.
 
@@ -21,8 +21,8 @@ from Claude. The team never types tasks by hand and nothing that comes in can le
 | Piece | What | Where / ID |
 |---|---|---|
 | Application | Next.js 16 (App Router, TypeScript), Node runtime. One deployment serves every endpoint. | Vercel project `pm-tasks`, https://pm-tasks.vercel.app, branch `claude/mangowise-task-automation-3qnd3k` (every push deploys in about 2 minutes) |
-| Database | Postgres (Neon, via the Vercel integration). Twelve tables (section 4). Kept forever. | env `storage_DATABASE_URL` |
-| Schedules | Vercel Cron. `/api/tick` every minute (with a budget: queue stops at 50 s, Pulp poll at 95 s; Pulp cards fetched ten at a time, Staging cards every minute, the rest and hand-made cards every 2 minutes, so the function lives a few seconds, not the whole minute); `/api/inbox-tick` every minute (three reads inside it, at 0/20/40 s); `/api/meet-tick` every 5 minutes (meetings in their own budget, two per run, trace before every slow step); `/api/eod` at 04:30 UTC Monday to Friday (10:00 India: the Today brief, and Monday's ideas). All authenticated with `CRON_SECRET` as a bearer token. | `vercel.json` |
+| Database | Postgres (Neon, paid plan; the minute-by-minute polling keeps it awake, so compute size is the cost lever). Fifteen tables (section 4). Kept forever. | env `storage_DATABASE_URL` |
+| Schedules | Vercel Cron. `/api/tick` every minute (with a budget: queue stops at 50 s, Pulp poll at 95 s; Pulp cards fetched ten at a time, open hub cards every minute, hand-made cards in rotation, so the function lives a few seconds, not the whole minute); `/api/inbox-tick` every minute (three reads inside it, at 0/20/40 s); `/api/meet-tick` every 5 minutes (meetings in their own budget, two per run, trace before every slow step); `/api/eod` at 04:30 UTC Monday to Friday (10:00 India: the Today post, and Monday's ideas; the minute loop runs it itself from 10:05 India if the cron did not). All authenticated with `CRON_SECRET` as a bearer token. | `vercel.json` |
 | Model | Claude (Anthropic API), `claude-sonnet-5` by default, structured JSON output, prompt caching on the instructions (1 hour). Two calls per message: extract, then classify per ask; one call per meeting. Every call logged with tokens and cost in `llm_calls`. | env `ANTHROPIC_API_KEY`, `LLM_MODEL` |
 | Google Cloud project | `mangoeyes-task-hub` (number `354018118635`). APIs on: Chat, Sheets, Drive, Gmail, Speech-to-Text, Cloud Storage. | env `GOOGLE_PROJECT_NUMBER` |
 | Service account | `task-hub@mangoeyes-task-hub.iam.gserviceaccount.com` (unique id `117215744015492300607`). Acts as the Chat app, reads and writes the sheet (shared with it as Editor), reads Meet notes (as each team member, see below), runs Speech-to-Text, owns the voice bucket. | env `GOOGLE_SERVICE_ACCOUNT_B64` (the JSON key, base64) |
@@ -31,7 +31,7 @@ from Claude. The team never types tasks by hand and nothing that comes in can le
 | Chat spaces | **Task Hub Feed** (📋) `spaces/AAQAjieDBM4`: the record. **Task Hub Drop** (📥) `spaces/AAQA-Dk7A_k`: phone shares, found by name. The **DM** with the app: typing from a computer. The old Intake space `AAQAUYuXnAc` is retired. | env `GCHAT_REVIEW_SPACE`, `GCHAT_INBOX_NAME` ("Task Hub Drop") |
 | Intake mailbox | `taskhub@mangoeyesagency.com`, an alias of arun@ (the old `intake@` alias is to be removed). Polled every minute as arun@. Processed mail gets the Gmail label "Task Hub". | env `GMAIL_INTAKE_ADDRESS` (comma-separated) |
 | Slack app | "Task Hub", one app, distributed, installed per client workspace via OAuth (`/api/slack/install` → `/api/slack/oauth`), bot token stored per workspace. Events to `/api/slack/events`. Scopes: channels/groups history and read, chat:write, reactions, users:read(.email), commands, team:read, files:read. Home workspace MangoEyes `T05941HP5A4`. | env `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`; `slack-manifest.yaml` |
-| Pulp | The task board. API v1 at `https://pulp.mangoeyes.io/api/v1`, bearer token acting as arun@ (member of every board). Six department boards: Development `0fac54b7…`, Writers `54d3e767…`, Graphics `088afc03…`, SEO `d4424c02…`, Onboarding & Automations `ec7258b2…`, Video `8f4eb438…`, plus **PMs - Board** (by exact name) for general and internal asks. Each has a Staging list. Card links `<base>/board/<board>?card=<card>`. | env `PULP_TOKEN`, `PULP_BASE_URL`; `config/boards.yaml` |
+| Pulp | The task board. API v1 at `https://pulp.mangoeyes.io/api/v1`, bearer token acting as arun@ (member of every board). Six department boards: Development `0fac54b7…`, Writers `54d3e767…`, Graphics `088afc03…`, SEO `d4424c02…`, Onboarding & Automations `ec7258b2…`, Video `8f4eb438…`, plus **PMs - Board** (by exact name) for general and internal asks. Cards go to To Do; any list named Staging is dead (a hub card found there is archived for the hub, 2026-09-30). The board read (`GET /boards/{id}/cards`) is capped at 1000 cards by Pulp with no paging; four boards are capped. Card links `<base>/board/<board>?card=<card>`. | env `PULP_TOKEN`, `PULP_BASE_URL`; `config/boards.yaml` |
 | PM Overview sheet | The PMs' record. One tab per client (headers: S. NO., TASK, PULP/CARD LINK, DATE ADDED, DUE DATE, PRIORITY, ASSIGNED TO, STATUS, DEPARTMENT, COMMENTS, some with DATE COMPLETED) with a DONE divider row; a **Config** tab that is the client directory. | env `PM_SHEET_ID`, `PM_SHEET_CONFIG_TAB` |
 | Speech-to-Text | v2 (Chirp 3, then Chirp 2, then "long") with v1 fallback; vocabulary hints from client names and agency words. Notes under about a minute run synchronously; longer ones go to a Cloud Storage bucket and a long-running job polled every minute. | env `VOICE_BUCKET`, `VOICE_BUCKET_LOCATION`, `SPEECH_V2`, `SPEECH_V2_TRIES` |
 | MCP server | `/api/mcp/<key>` over Streamable HTTP. One key per Claude account, stored hashed. Connected as a custom connector in every team Claude account. | `docs/MCP.md` |
@@ -55,7 +55,10 @@ src/lib/
   gmail.ts           mailbox: forwards, signatures, quoted history, attachments
   slack.ts / normalize/slack.ts   workspaces, tokens, who is who, Slack markup → words, workspace ↔ client linking
   slack-replies.ts   reply reminders (20 min / 1 h / 1 day / daily) and the Acknowledged button
-  meet.ts            Gemini notes from Google Meet → actions, ideas, decisions
+  meet.ts            Gemini notes from Google Meet → actions, ideas, decisions (read as each team member)
+  team.ts            the team record: names and emails from the Pulp boards, Chat ids from Drop messages, who a message tags
+  board-mirror.ts    every card on every department board, every 5 minutes; rows for hand-made cards; archived detection
+  morning.ts         the 10:00 India run: expire dead proposals, the Today post, Monday's ideas; catch-up from the minute loop
   transcribe.ts      Speech-to-Text, short and long
   filter/noise.ts    what never reaches a model              dedupe.ts   repeats against open requests
   resolve.ts         client matching (prefix, whole-word name/alias, domain, number, thread, suggestion)
@@ -71,7 +74,8 @@ src/lib/
   db.ts / schema.ts / mcp-keys.ts / auth.ts / types.ts
 config/  boards.yaml (boards, lists), routing.yaml (request types, departments, SLAs, labels, P1 words),
          sheet.yaml (columns, stamp, colours), noise.yaml (filters, dedupe window, reminder marks, daily cap)
-db/schema.sql   applied by /api/setup (idempotent)        tests/   107 unit tests (vitest)
+db/schema.sql   applied by /api/setup and by the minute loop (idempotent; one-time repair statements live there too)
+tests/   unit tests (vitest; the count is in CLAUDE.md); tests/features.test.ts fails when a module or endpoint is missing from docs/FEATURES.md
 ```
 
 ## 4. Data model (Postgres)
@@ -80,11 +84,14 @@ db/schema.sql   applied by /api/setup (idempotent)        tests/   107 unit test
 |---|---|
 | `clients` | The client directory, mirrored from the Config tab every minute: id, name, scope (client / internal), aliases, email domains, WhatsApp numbers, Slack workspace id, sheet tab, board overrides. |
 | `messages` | Every incoming message, stored before anything else: channel (`intake` = Chat DM/Drop, `email`, `slack`, `task_cmd` = Claude or the form, `meet`), external id (unique per channel), client, sender, text, hash of the sender's own words, permalink, thread ref, raw envelope, `skip_reason` when nothing was made (see section 6). |
-| `requests` | One row per distinct ask found in a message: summary, quote, request type, department, priority with reason, draft title/description, status (`pending_review` in Staging, `approved`, `merged` into another, `dismissed`). |
-| `tasks` | One row per card: hub-made (`origin = hub`, from a request) or sheet-mirrored (`origin = sheet`). Pulp card and board ids, list id, sheet tab/row/status, assignee, due, created/completed, `last_moved_at`. |
+| `requests` | One row per distinct ask found in a message: summary, quote, kind (task / reminder / idea / rule / note), request type, department, priority with reason, draft title/description, the proposal card's name and who it was addressed to, status (`proposed` = waiting for a tap, `approved`, `expired` after five working days, `merged` into another, `dismissed`, `noted`, `reminder`, `idea`, `rule`), `decided_by`. |
+| `tasks` | One row per card: hub-made (`origin = hub`, from a request), sheet-mirrored (`origin = sheet`) or read from a board (`origin = board`, the board mirror). Pulp card and board ids, list id, labels, sheet tab/row/status, assignee, due, created/completed, `last_moved_at`; `notes` = "Archived or deleted in Pulp" once a card is gone. |
 | `status_events` | Every list move of a card (from, to, when, source). |
 | `llm_calls` | Every model call: step, model, tokens in/out/cached, cost, latency, message. |
 | `queue` | Background jobs with backoff: `create_card`, `sync_sheet`, `card_comment`, `process_message`, `transcribe_poll`, `reply_check`. Abandoned after 8 attempts and reported. |
+| `reminders` | "Remind me" items: who, when, text, done; posted with an @mention at their time and at 10:00 India until Done. |
+| `ideas` | Ideas from messages and meetings; Monday's post lists the open ones with Make it a task / Not now. |
+| `client_rules` | A client's standing instructions to MangoEyes, printed at the bottom of that client's Pulp cards. |
 | `meetings`, `meeting_items` | Each Gemini notes doc read: title, date, client, organiser, summary, notes; items typed action / idea / decision / discussion with owner, due text, outcome. |
 | `slack_workspaces`, `slack_users` | Bot token per workspace; who is staff (by email domain) per user. |
 | `settings` | Key-value: poll reports (`*_last`), Chat thread topics, reminder marks, acknowledgements, MCP keys (hashed), the Drop space id, cursors. |
@@ -94,8 +101,11 @@ Retention: everything forever. `RAW_RETENTION_DAYS` exists (off) and would only 
 ## 5. The minute loop (`/api/tick`) and the other schedules
 
 Every minute, in order: refresh the client map from the Config tab → (every 10 min) mirror every client tab into
-`tasks` → poll the mailbox → run due queue jobs (until 50 s) → poll every hub card in Pulp by id (until 95 s)
-(status sync, approvals) → check up to 40 hand-made cards in rotation → (every 10 min) watchdog → heartbeat `tick_last`.
+`tasks` → (every 5 min) mirror every department board (`board-mirror.ts`: new cards, list and label changes, archived
+cards, sheet rows for hand-made cards at To Do or later with a client label) → poll the mailbox → run due queue jobs
+(until 50 s) → poll every hub card in Pulp by id (until 95 s; a card that is closed, deleted or in a Staging list is
+archived for the hub) → check up to 40 hand-made cards in rotation → post reminders due → (from 10:05 India) run the
+morning post if the cron did not → (every 10 min) watchdog and proposal expiry → heartbeat `tick_last`.
 
 `/api/meet-tick`, every 5 minutes, reads new Meet notes: at most two meetings per run, a second only with most of the
 budget left, a trace written before every slow step, a doc set aside after three cut-short attempts.
@@ -108,17 +118,17 @@ time. Slack pushes events to `/api/slack/events` in real time (acknowledged with
 
 1. **Store first.** The message is written to `messages` before anything else, idempotent on (channel, external id). A re-run (a person picked the client, or said "make it a task") updates that row in place; it is never deleted.
 2. **Reply timer (Slack only).** A client-authored Slack message queues reply checks at the marks in `config/noise.yaml` (20 min, 60 min, 1440 min).
-3. **Noise filter, no model.** Acknowledgements ("ok thanks", 👍), too short, bot messages, Slack subtypes, staff messages in client channels, image-only posts: stored with a reason, nothing else. An image-only post asks the sender to type the ask.
+3. **Noise filter, no model.** Acknowledgements ("ok thanks", 👍), too short, bot messages, Slack subtypes, staff messages in client Slack channels, image-only posts: stored with a reason, nothing else. An image-only post asks the sender to type the ask. (Staff mail is read like anyone's since 2026-09-30.)
 4. **Pause switch.** `INTAKE_PAUSED=true` parks the message (retried every 5 minutes) until switched off.
 5. **Unknown client.** No client → stored as `unknown_client`; the DM/Drop sender is asked in their thread; other channels get a "❓ Which client?" headline in the feed with a dropdown card in its thread. Picking or typing the client re-runs the message at once (`reprocess.ts`).
 6. **Thread follow-up, no model.** A short reply inside a thread that already became a task is added as a comment on that card; "any update?" flags the card as client-waiting.
 7. **Repeats, no model.** The hash of the sender's own words (quoted history excluded) is compared with open requests of the same client within 14 days: an exact or very similar repeat is commented onto the existing card and the feed shows a 🔁 line with the card link.
 8. **Daily cap.** Per-client cap on model calls per day (100) as a safety valve.
-9. **Extract (model call 1).** Every distinct ask, with the sender's exact words, deadlines and URLs; `is_request`; `tone` (neutral / unhappy / urgent); `needs_reply`. Quoted mail history is passed as labelled context, never as the ask. Voice transcripts are told they are transcripts and kept to one ask unless clearly several. A stated problem ("… is not working") is an ask by rule whatever the model said.
+9. **Extract (model call 1).** Every distinct ask with its kind, the sender's exact words, deadlines and URLs; `is_request`; `tone` (neutral / unhappy / urgent); `needs_reply`; `urgent` only on the sender's explicit word. An option the model invents outside a list falls back to the safe value (note, neutral) instead of failing the message (2026-09-30). Quoted mail history is passed as labelled context, never as the ask. Voice transcripts are told they are transcripts and kept to one ask unless clearly several. A stated problem ("… is not working") is an ask by rule whatever the model said.
 10. **No ask.** Unhappy tone → `client_unhappy`, one ⚠️ feed line "a person should reply". Otherwise `no_ask`, kept on record, listed as an update.
 11. **Classify (model call 2, per ask).** Request type, department, priority hint, title, description, and whether it matches an open request (duplicate / nudge / change). Matches become card comments and a 🔁 line, never a new card.
 12. **Route, no model.** `config/routing.yaml` decides board, list (To Do), labels, SLA due date; P1 keywords, or the sender saying urgent, force P1 with a 4-hour due. Request types marked `no_card` (updates, questions, ideas) make no card but never go silent: one ℹ️ "noted, no card" line.
-13. **Kind, then proposal.** Every item is one of five kinds (extract). A reminder, idea, rule or note is stored and gets its line; only a task goes on: classify → route → a request in status `proposed` and a proposal card in the feed thread with Department, Assign to, Priority and Due pre-filled. Nothing reaches Pulp until a person taps Create card (then: card in To Do, assigned, labels, description with the original words and the client's rules, sheet row written) or types "create" in the thread. Remind me instead makes a reminder; No card makes nothing. Unanswered proposals are listed in the brief.
+13. **Kind, then proposal.** Every item is one of five kinds (extract). A reminder, idea, rule or note is stored and gets its line; only a task goes on: classify → route → a request in status `proposed` and a proposal card in the feed thread, addressed by @mention to the person who asked (a staff sender, the team member a client tagged, a meeting's organiser; else "PMs"), with Department, Assign to, Priority and Due pre-filled. Two asks with the same title in one message make one proposal. A proposal nobody answers in five working days expires with a ⌛ line ("create" in the thread brings it back). Nothing reaches Pulp until a person taps Create card (then: card in To Do, assigned, labels, description with the original words and the client's rules, sheet row written) or types "create" in the thread. Remind me instead makes a reminder; No card makes nothing. Unanswered proposals are listed in the brief.
 14. **Feed.** One headline per message: one card → its line is the headline; several → "🆕 Client · N cards" with a line per card in the thread. Details (the words, context, links) go in the thread as a boxed card. P1 adds a 🔴 line. Meetings post their card lines inside the meeting's own thread.
 
 ## 7. Each channel's mechanics
@@ -135,8 +145,8 @@ time. Slack pushes events to `/api/slack/events` in real time (acknowledged with
 
 ## 8. Cards, approval, the sheet
 
-- **The proposal is the inbox.** No Staging list since 2026-09-22: the hub proposes in the feed, a person confirms with one tap, the card lands in To Do assigned. Cards made before that still sit in Staging and drag still approves them.
-- **Create card = approval.** The tap makes the card and writes the row into the client's tab above the DONE divider (for older Staging cards, the minute poll still sees the drag and does the same): next serial, title, department label, priority, assignee, Pulp link, source link, dates, Status, and the Comments stamp ("Task assigned. Added by Task Hub · approved by drag in Pulp · 15-Sep-2026 14:32 IST · from Slack, Dr Mehta"). New rows are light yellow ("check me, then whiten").
+- **The proposal is the inbox.** No Staging list since 2026-09-22: the hub proposes in the feed, a person confirms with one tap, the card lands in To Do assigned. A hub card still found in any list named Staging is dead: archived for the hub, its request closed (2026-09-30).
+- **Create card = approval.** The tap makes the card and writes the row into the client's tab above the DONE divider (a card confirmed from Claude is made the same way at once): next serial, title, department label, priority, assignee, Pulp link, source link, dates, Status, and the Comments stamp ("Task assigned. Added by Task Hub · approved by drag in Pulp · 15-Sep-2026 14:32 IST · from Slack, Dr Mehta"). New rows are light yellow ("check me, then whiten").
 - **Rows for hand-made cards (2026-09-28).** A card made by hand on any board, the PMs board included, gets its row from the board mirror once it sits in To Do or later, with the client from its label or title; without a client label it waits (marked, listed in the brief) and is never skipped. Only cards created from 28 Sep 2026.
 - **PMs board, rows by hand (until 2026-09-28, no longer).** A card on the PMs board (`sheet: manual` in `config/boards.yaml`, now removed) got no row from the hub: the drag out of Staging approves it, the PM adds the row when wanted (card link in the client's tab; the mirror adopts it within 10 minutes and fills a blank Task cell), and Status follows from there. Moving the card to a department board writes the row at that moment.
 - **Board mirror.** Every five minutes each board in `config/boards.yaml` is read in one call and every card nobody else tracks is kept with origin `board` (list, labels, assignee, due, client from a label or the title), so Claude answers about hand-made cards that have no sheet row. Reads only; a card that left the board is marked Archived; a mirrored card that gets a sheet row is the sheet's from then on (2026-09-23).
@@ -158,19 +168,23 @@ Icons: 🆕 card · 🔁 repeat noted on a card · ℹ️ noted, no card · ⚠�
 🔴 P1 · 💬 ⏰ 🔴 reply reminders · 📋 daily brief. Typed replies in a thread answer that thread: a client name, "not a
 task", "make it a task", "approve", "merge", "ack". The receipt rule for the team: no line within 2 minutes → send again.
 
-## 10. The daily brief
+## 10. The 10:00 post (`morning.ts`, `brief.ts`)
 
-23:00 India time, weekdays, one headline ("📋 Daily brief · Mon 14 Sep · 6 new · 3 waiting on you · 1 issue · 2 overdue
-· 4 done") with the detail in its thread. Sections only when non-empty: New today (with card links), Waiting on you
-(Staging cards older than a day, unanswered questions, clients waiting in Slack, unhappy clients), Waiting on a client,
-Issues (failed messages, cards not created, abandoned jobs, a read that failed, a stale minute loop), Overdue (hub cards,
-P1 first), Done today. A quiet day is one line. `daily_summary` from Claude gives the longer text form for any day or range.
+10:00 India, Monday to Friday (cron at 04:30 UTC; the minute loop runs it from 10:05 if the cron did not; recorded in
+settings `eod_last`). First, proposals older than five working days expire. Then one headline ("📋 Today · Wed 30 Sept ·
+3 things waiting on Heena, 2 on Anuj · 1 overdue · 1 issue for Arun") with the detail in its thread, and nothing at all
+when nobody has anything. Only live items: proposals waiting for a tap (named to the person asked), reminders due,
+clients waiting in Slack, hand-made cards waiting for a client label, overdue hub cards touched within 60 days, issues
+(failed messages, a stale reader). On Mondays the week's ideas follow with Make it a task / Not now. `daily_summary` from
+Claude gives the longer text form for any day or range.
 
 ## 11. Reliability
 
 Store first, always. Every write to Pulp or the sheet that fails goes to the queue with backoff (never re-approving).
-The watchdog every 10 minutes re-runs messages left half-done (up to three times, then marks them failed with a line),
-creates cards for tasks that have none, and reports jobs abandoned after 8 attempts. Health returns 503 when the minute
+The watchdog every 10 minutes re-runs messages left half-done (only a queued `process_message` counts as "already
+being handled"; up to three times, then marks them failed with a ⚠️ line), creates cards for tasks that have none, and
+reports jobs abandoned after 8 attempts. A run that dies writes `lastError` and `failedAt` on its message, shown by
+`hub_status` under `stuckMessages` with the retry count. Health returns 503 when the minute
 loop stalls; `hub_status` shows every poll's last run, queue errors and stuck messages. A message that fails is still on
 record with a reason. Nothing is ever deleted by the hub.
 
@@ -203,7 +217,7 @@ the kill switch stays untested until needed · Ads/CRM/analytics stay on each pe
 
 ## 16. Known limits and what comes next
 
-Long voice notes above 163 seconds are built but not yet seen live; the first real Slack client message, the next Meet
-call and the first brief prove themselves on traffic. Chat has no bulk delete for people's messages. Reading the Drop
-space relies on domain-wide delegation as arun@ (a per-user sign-in is a later option). The rest of the ideas are in
-`docs/POST-LAUNCH.md`.
+Pulp's board read is capped at 1000 cards with no paging (four boards are capped; the fix is on Pulp's side). Long
+voice notes above 163 seconds are built but not yet seen live. Chat has no bulk delete for people's messages. Reading
+the Drop space relies on domain-wide delegation as arun@ (a per-user sign-in is a later option). What is being watched
+right now is in `docs/NOW.md`; the ideas left for later are in `docs/POST-LAUNCH.md`.
