@@ -199,6 +199,7 @@ export async function postReview(p: ReviewPost): Promise<void> {
 /** What a PM Review card thread is about, so a typed reply in that thread can answer it. */
 export type ThreadTopic =
   | { kind: "needs_human"; messageId: string }
+  | { kind: "meeting_client"; meetingId: string }
   | { kind: "request"; requestId: string; duplicateOf?: string }
   | { kind: "nudge"; messageId: string; channelId: string }
   | { kind: "proposal"; requestId: string }

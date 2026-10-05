@@ -1,14 +1,14 @@
 # Where the hub is today
 
-**Updated 2026-09-30, end of the session.** This page is the first thing a new session reads: what is live, what
+**Updated 2026-10-05, end of the session.** This page is the first thing a new session reads: what is live, what
 changed last, what is being watched, what waits on Arun, and how to see the live hub. It is rewritten at the end of
 every working session; the history behind every line is in `docs/STATE.md` (dated decisions) and `git log`.
 
 ## Live, on `main`
 
-Everything in `docs/FEATURES.md` marked Live or Built is deployed. Both branches carry the same commits:
-`claude/mangowise-task-automation-3qnd3k` (development) is fast-forwarded into `main` after every push. Vercel deploys
-in about two minutes. Last commit: `0d63c0f` (Meet notes read as each team member).
+Everything in `docs/FEATURES.md` marked Live or Built is deployed. Both branches carry the same commits: the session
+branch (`claude/dreamy-clarke-3dyqx7` this time) is fast-forwarded into `main` after every push. Vercel deploys in
+about two minutes.
 
 The hub in one breath: client asks arrive from Google Chat (DM and the Drop space), mail (taskhub@ and the group
 clientsuccess.team@ in To or Cc), client Slack channels and Google Meet notes; every item is sorted into task,
@@ -16,60 +16,45 @@ reminder, idea, rule or note; only a task is proposed, as a card in the feed thr
 their tap makes the Pulp card (To Do, assigned) and the PM Overview sheet row; every card on every department board is
 mirrored so Claude can answer about all of them; the 10:00 India post names what each person has to do today.
 
-## What changed on 2026-09-30 (this session), newest first
+## What changed on 2026-10-05 (this session)
 
-00. **Old meetings stopped.** Reading as everyone surfaced 27 meetings from the last three days; from this deploy a
-   Drive view counts from its first read, so the backlog stops and no new Drive ever brings old meetings. Threads
-   already posted stay.
-0. **A client's mail resolves through people the hub knows.** Fatima's mail from hcmedspa.com asked "which client?"
-   because the Config row has no domain. The mail reader now also matches the sender against client people seen in the
-   Slack workspaces (exact address, or a private domain of one client). *Arun's side, optional:* fill `email_domains`
-   in the Config tab (HC MedSpa: hcmedspa.com) for clients that write from their own domain.
-1. **Meet notes without folder sharing.** The hub reads Drive as each team member (domain-wide delegation, scope
-   `drive.readonly`, added by Arun in Google Admin). No folder is shared any more; `meet-check` lists whose Drives are
-   read and whether each can be read. *Proven* the same evening: 38 docs found across the team. Addresses on the Pulp
-   boards that are not Google accounts are set aside for a day and listed as skipped.
-2. **Mail via the group.** clientsuccess.team@ counts as the hub; the mailbox search names To, Cc and delivered-to;
-   a team member's mail is read like anyone's (the "staff outgoing" rule is retired); a mail with no ask is recorded and
-   posts nothing; an unknown-client mail gets the "which client?" card only when it holds an ask. *Proof pending:* the
-   next client thread with the group in Cc (see `docs/SOAK.md`, 30 Sep). *Arun's side:* the Google Group must deliver
-   mail to its members and taskhub@ (an alias of arun@) must be a member.
-3. **Client rules.** Off the Chat confirmation card; on the Pulp card at the bottom under "How <client> wants us to
-   work (standing rules, not part of this task)". A clinic's own process is a note, not a rule. The eight HC MedSpa
-   "rules" from Vishnu's 29 Sep mail are deleted by a one-time statement in `db/schema.sql`.
-4. **Model answers outside an option list** (kind "explanation") no longer fail the message: every enum falls back to
-   its safe value. Cause of one Slack message failing six times.
-5. **Watchdog.** A client Slack message that died mid-run was never retried (its day-long reply-check jobs hid it).
-   Fixed; a run that dies now writes `lastError` on the message, shown in `hub_status.stuckMessages`.
-6. **Dead proposals leave within ten minutes** (expiry runs in the minute loop); a hub card still in any list named
-   Staging is archived for the hub. The 10:00 post is meant to be short from 1 Oct. *Proof pending:* tomorrow's post.
-7. **First morning after the audit:** board-mirror insert fixed (a comment inside the SQL text broke it), names from
-   the team record, old-rule proposals expire, per-card poll no longer runs out of time.
+**A meeting's client is set only with certainty; the past meetings are repaired by the hub.** Vishnu saw
+"📝 Swathi / Vishnu · HC MedSpa · 4 Oct" in the feed for a call with The SKIN Firm's Swathi and Dr Naren. The
+title and the attendee list named no client, so the Meet reader took the sorter's guess as the client and filed the
+meeting, its two decisions and its idea under HC MedSpa. Now (`src/lib/meet-client.ts`, FEATURES 1.9):
 
-Before that: 29 Sep the owner's audit (eight points: meeting follow-ups listed not proposed, proposals addressed to the
-organiser or the tagged person, P1 only on explicit words with working-hours due, twin titles collapsed, overdue window
-60 days, board-import completion dates, Staging cards archived, MangoEyes internal tasks like a client); 28 Sep rows
-for hand-made cards and the PMs board like every board; 23 Sep cards from Claude at once and the board mirror.
+- A client is set from one of four facts: the call's title; an attendee's address; a client person the hub knows
+  (members of the client's Slack workspace, senders of its Slack messages) named in the title, the Invited line or as
+  a transcript speaker; or, for an internal call, only team members speaking plus the sorter's "MangoEyes".
+- Otherwise the headline reads "client unclear", nothing is filed under any client, the action items are held, and a
+  "Which client?" card in the thread names the hub's guess. The pick, or a typed name in the thread, files the
+  meeting, its items, its ideas and its waiting action messages, rewrites the headline and queues the action items.
+- The repair runs by itself inside the Meet poll, a dozen meetings per run, each once: a certain fact that names
+  another client re-files the meeting and says so in its thread (Swathi / Vishnu → The SKIN Firm); a meeting whose
+  client was only a guess loses it and gets the card with that guess; a no-notes record is left. Nothing is deleted.
 
 ## Being watched (proofs that need real traffic)
 
-- Tomorrow's 10:00 India post: short, named people only, `eod_last.expired` counting the old-rule proposals closed.
-- The Meet reader as each team member: proven 18:35 UTC (38 docs found); the three-day backlog it started reading was stopped the same evening (each view counts from its first read). Seven Pulp board members have addresses that are not Google accounts; they show under `meet_poll_last.skipped`, retried daily, never an issue.
-- The group-Cc mail path: a no-ask reply shows in `recent_messages` as `no_ask` with nothing in the feed.
-- Slack proposals @mentioning the person the client tagged; meeting threads showing "Follow-ups, no card".
-- Hand-made cards without a client label: 11 on the Video board, 2 on Graphics, waiting (`board_mirror_last.waitingLabel`).
+- The repair (within an hour of the deploy): `meet_poll_last.processed` carries "client repair" lines;
+  `meeting_detail` for "Swathi / Vishnu" reads The SKIN Firm and its thread headline too; past meetings whose client
+  was a guess read "client unclear" with the card in their thread; settings `meet_client_repair` ends `done` with its
+  counts. About a dozen past meetings are expected to ask (the "Meeting started …" calls filed under Leicester
+  MediSpa, The SKIN Firm and The Eye Doctor by guess, "Nitin / Nishit Medispa", "Jaishri Malhotra / Vishnu",
+  "Introduction Call"); a tap on each card files it.
+- The next meeting whose title names nobody the hub knows: card in the thread, no client until the tap, action items
+  after the tap.
+- From 30 Sep, still open: the group-Cc mail path (a no-ask reply shows as `no_ask`, nothing in the feed); Slack
+  proposals @mentioning the tagged person; hand-made cards without a client label (`board_mirror_last.waitingLabel`).
 
 ## Waiting on Arun
 
 - Archive one of the two "Finalise model for endolift training session" cards in Pulp (a duplicate made before the
   twin-title collapse; the hub cannot archive cards).
-- Add a client label to the 13 waiting hand-made cards (Video, Graphics); each gets its sheet row within five minutes.
+- Add a client label to the waiting hand-made cards (Video, Graphics); each gets its sheet row within five minutes.
 - Config tab: delete the row "Lester Medispa"; add alias "HC Medi Spa" to HC MedSpa and "LMS" to Leicester MediSpa; fill `email_domains` for clients that mail from their own domain (HC MedSpa: hcmedspa.com).
-- Neon: pin compute to 0.25 CU (the hub polls every minute, so the database never sleeps; the paid plan is right, the
-  size is the only cost lever).
+- Neon: pin compute to 0.25 CU.
 - Google Group clientsuccess.team@: confirm it delivers to members and that taskhub@/arun@ is a member.
-- Pulp: the board read is capped at 1000 cards and accepts no paging (SEO, Writers, Dev, Video boards are capped);
-  the fix is on Pulp's side (MangoEyes' own tool). Until then the oldest cards on those boards are not mirrored.
+- Pulp: the board read is capped at 1000 cards and accepts no paging; the fix is on Pulp's side.
 
 ## Awaiting Arun's go (proposed, not built)
 
@@ -80,13 +65,15 @@ for hand-made cards and the PMs board like every board; 23 Sep cards from Claude
 
 - Pulp board read cap (above). Slack `files:read` only for the workspaces where it was granted. Chat has no bulk delete.
 - The Drop space is read as arun@ (domain-wide delegation); a per-user sign-in is a later option.
+- The hub cannot relabel a Pulp card: a card made from a meeting that is later re-filed keeps its old label, and the
+  thread says how many.
 - Model cost is about $3 for 30 days at the current volume (`hub_status.modelSpend30d`).
 
 ## How to see the live hub from a session
 
 - The **Task_Hub MCP connector** is the window: `hub_status` (every poll's last run, queue errors, stuck messages with
   their `last_error`), `recent_messages` (with `includeSkipped` for reasons), `search_tasks` (proposals show as
-  "Waiting for a decision"), `client_summary`, `daily_summary`, `meetings`, `people`.
+  "Waiting for a decision"), `client_summary`, `daily_summary`, `meetings`, `meeting_detail`, `decisions`, `ideas`, `people`.
 - `/api/health` is the same for a browser; `/api/meet-check`, `/api/sheet-check`, `/api/pulp-check` need the cron
   secret, which Arun holds and which never goes into the repository.
 - A session cannot reach vercel.app, Arun's browser, Google Admin or the database directly. Live checks go through the

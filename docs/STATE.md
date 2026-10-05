@@ -11,10 +11,24 @@ Entries below are dated; a later entry supersedes an earlier one (for example th
 nudges described in older entries are gone: Drop space and 20 min / 1 h / 1 day / daily reminders since 2026-09-15).
 Keep it updated with every change.
 
-Last updated: 2026-09-23 (board mirror, cards from Claude made at once, Remind me on; 22 Sep: five kinds, the proposal card, reminders, Monday ideas, the 10:00 Today brief; 21 Sep: no Slack reactions; 18 Sep: PMs board rules, short headlines, Vercel cost, `main` branch; `CLAUDE.md` is the entry point).
+Last updated: 2026-10-05 (meeting client with certainty only, the repair of past meetings; 23 Sep: board mirror, cards from Claude made at once, Remind me on; 22 Sep: five kinds, the proposal card, reminders, Monday ideas, the 10:00 Today brief; 21 Sep: no Slack reactions; 18 Sep: PMs board rules, short headlines, Vercel cost, `main` branch; `CLAUDE.md` is the entry point).
 
 ## Decisions finalised
 
+- **2026-10-05, a meeting's client is set only with certainty (Vishnu):** the feed showed "Swathi / Vishnu · HC MedSpa"
+  for a call with The SKIN Firm's Swathi and Dr Naren (their 30-day notice). The title and the attendee list named no
+  client, so the Meet reader took the sorter's guess as the client, and the meeting, its two decisions and its idea
+  went into HC MedSpa's record. Decided: the sorter's answer is never a meeting's client. A client is set from the
+  call's title, an attendee's address, a client person the hub knows (the client's Slack workspace members and the
+  senders of its Slack messages, matched by name in the title, the Invited line or as a transcript speaker), or, for an
+  internal call, only team members speaking plus the sorter's "MangoEyes". Otherwise the headline reads "client
+  unclear", nothing is filed under any client, the action items are held, and a "Which client?" card with the guess
+  sits in the thread; the pick (or a typed name there) files everything and releases the action items
+  (`refileMeeting`). An item carries its own client only when its words name one. The past records are repaired by
+  the hub itself, a dozen meetings per Meet poll, each once (`meet_client_repair`, `meet_client_check:<id>`): a
+  certain fact that names another client re-files the meeting and says so in its thread; a meeting whose client was
+  only a guess loses it and gets the card with that guess; a no-notes record is left. Nothing is deleted; cards made
+  earlier keep their Pulp label and the thread says how many. Module `src/lib/meet-client.ts`; 12 tests.
 - **2026-09-15, soak decisions (Arun):** one Staging list for every card, no Needs scope gate (`gated` off in
   `config/routing.yaml`); no client or internal boards, every card on a department board; one MCP key per Claude
   account, the hub asks who is filing ("Anuj via Claude-Arun"); the kill switch stays untested until ever needed;

@@ -84,6 +84,13 @@ async function answerThread(topic: ThreadTopic, text: string, who: string, whoUs
     return (await moveReminder(topic.reminderId, text, who)) ?? "Say \"done\" when it is handled, or a day (\"Friday\", \"next week\", \"tomorrow 4pm\") to move it.";
   }
   if (topic.kind === "ideas") return "Tap Make it a task or Not now on the idea you mean.";
+  if (topic.kind === "meeting_client") {
+    // The meeting's "which client?" card (2026-10-05): a typed name files the meeting, like the dropdown.
+    const hit = resolveClientFromText(text, await allClients());
+    if (!hit) return "I did not catch the client. Say its name, or pick it on the card above.";
+    const { refileMeeting } = await import("@/lib/meet");
+    return refileMeeting(topic.meetingId, hit.client, who);
+  }
   const no = /\b(not a task|no task|ignore|skip|dismiss|drop it|nothing)\b/.test(t);
   const yes = /\b(make it a task|make a task|create|approve|yes|go ahead|ok(ay)?|separate task)\b/.test(t);
   if (topic.kind === "nudge") {
@@ -194,6 +201,14 @@ async function handleCardClick(ev: NormalisedEvent) {
         if (c) await learnWorkspace(p.messageId, c);
         reprocessSoon(p.messageId, waitUntil);
         return done(`👤 Client set to ${c?.name ?? clientId} by ${who}; processing.`);
+      }
+      case "pick_meeting_client": {
+        // A meeting nothing in the call could file (2026-10-05): the pick files it and releases its action items.
+        const clientId = field("client");
+        const c = clientId ? (await allClients()).find((x) => x.id === clientId) : undefined;
+        if (!c) return NextResponse.json({});
+        const { refileMeeting } = await import("@/lib/meet");
+        return done(await refileMeeting(p.meetingId, c, who));
       }
       case "ack_reply":
         await acknowledgeReplies(p.channelId, who);
