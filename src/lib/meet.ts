@@ -380,7 +380,10 @@ async function askMeetingClient(meetingId: string, threadKey: string, title: str
  * messages move; the headline is rewritten; the held action items are queued. Cards already made keep their label in
  * Pulp (the hub cannot relabel), and the thread says so.
  */
-export async function refileMeeting(meetingId: string, client: Client, by: string, reason?: string): Promise<string> {
+export async function refileMeeting(meetingId: string, client: Client, by: string, reason?: string, opts: { quiet?: boolean } = {}): Promise<string> {
+  // quiet (the repair, Vishnu 2026-10-05: "no feed message for the corrections"): the records and the existing
+  // headline change, nothing is posted, no message is re-run, no card is touched.
+  const quiet = !!opts.quiet;
   const rows = await sql()`select id, drive_file_id, title, held_at, client_id from meetings where id = ${meetingId}`;
   if (!rows.length) return "That meeting is not on record any more.";
   const m = rows[0];
@@ -394,7 +397,7 @@ export async function refileMeeting(meetingId: string, client: Client, by: strin
   for (const r of msgs) {
     await sql()`update messages set client_id = ${client.id}, scope = ${client.scope} where id = ${r.id}`;
     await sql()`update requests set client_id = ${client.id} where message_id = ${r.id} and client_id is not distinct from ${old} and not exists (select 1 from tasks t where t.request_id = requests.id)`;
-    if (r.skip_reason === "unknown_client") {
+    if (r.skip_reason === "unknown_client" && !quiet) {
       await sql()`update messages set skip_reason = null where id = ${r.id}`;
       await closeNeedsHumanCard(String(r.id), `👤 Client set to ${client.name} by ${by}; processing.`);
       await enqueue("process_message", { messageId: String(r.id) });
@@ -418,6 +421,7 @@ export async function refileMeeting(meetingId: string, client: Client, by: strin
     await editHeadline(h.name ?? null, meetingHeadline({ title: h.title ?? String(m.title), who: client.name, day: h.day ?? "" }));
     await sql()`update settings set value = value || ${JSON.stringify({ who: client.name })}::jsonb, updated_at = now() where key = ${"meet_head:" + meetingId}`;
   }
+  if (quiet) return line;
   const card = await sql()`select value from settings where key = ${"meet_client_card:" + meetingId}`;
   const cardName = (card[0]?.value as { card?: string | null } | undefined)?.card ?? null;
   if (cardName) {
@@ -432,10 +436,11 @@ export async function refileMeeting(meetingId: string, client: Client, by: strin
 
 /**
  * The one-time repair (2026-10-05): every meeting read before this rule is looked at again with the same four facts.
- * A certain fact that names a different client re-files the meeting and says so in its thread (Swathi / Vishnu →
- * The SKIN Firm); a meeting whose client was only a guess loses it and gets the "which client?" card with that guess;
- * a meeting with no client and nothing to file is left. Runs inside the Meet poll a dozen meetings at a time, each
- * checked once, until none is left. Nothing is deleted.
+ * A certain fact that names a different client re-files the meeting in the records and on its existing headline
+ * (Swathi / Vishnu → The SKIN Firm); nothing is posted in the feed (Vishnu: "no feed message for the corrections").
+ * A meeting whose client was only a guess is left as it is and noted in its check row (`guess: true`): asking would
+ * be a feed message. Runs inside the Meet poll a dozen meetings at a time, each checked once, until none is left.
+ * Nothing is deleted.
  */
 export async function repairMeetingClients(budgetMs = 25_000): Promise<string | null> {
   const started = Date.now();
@@ -468,29 +473,17 @@ export async function repairMeetingClients(budgetMs = 25_000): Promise<string | 
     const certain = certainMeetingClient({ title: String(m.title), attendees, notes: String(m.notes), clients, people, team, sorterClient: storedClient });
     const short = headlineTitle(String(m.title));
     try {
+      const guess = !certain && !!stored && !!m.has_thread;
       if (certain && certain.client.id !== stored) {
-        await refileMeeting(id, certain.client, "the hub", certain.detail);
+        await refileMeeting(id, certain.client, "the hub", certain.detail, { quiet: true });
         st.corrected = (st.corrected ?? 0) + 1;
         out.push(`${short}: ${storedClient?.name ?? "no client"} → ${certain.client.name} (${certain.detail})`);
-      } else if (!certain && m.has_thread && (stored || m.has_items)) {
-        // A guess, or nothing: the record carries no client until a person sets it.
-        if (stored) {
-          await sql()`update meetings set client_id = null, scope = 'unknown' where id = ${id}`;
-          await sql()`update meeting_items set client_id = null where meeting_id = ${id} and client_id = ${stored}`;
-          await sql()`update ideas set client_id = null where meeting_id = ${id} and client_id = ${stored}`;
-          const head = await sql()`select value from settings where key = ${"meet_head:" + id}`;
-          const h = head[0]?.value as { name?: string | null; title?: string; day?: string } | undefined;
-          if (h) {
-            await editHeadline(h.name ?? null, meetingHeadline({ title: h.title ?? String(m.title), who: "client unclear", day: h.day ?? "" }));
-            await sql()`update settings set value = value || ${JSON.stringify({ who: "client unclear" })}::jsonb, updated_at = now() where key = ${"meet_head:" + id}`;
-          }
-        }
-        await askMeetingClient(id, `meet-${id}`, String(m.title), storedClient);
-        st.asked = (st.asked ?? 0) + 1;
-        out.push(`${short}: ${storedClient ? `${storedClient.name} was a guess` : "no client"}, asked`);
+      } else if (guess) {
+        st.asked = (st.asked ?? 0) + 1; // counted as "unproven", left as it is: asking would be a feed message
+        out.push(`${short}: ${storedClient!.name} is unproven, left as it is`);
       }
       st.checked = (st.checked ?? 0) + 1;
-      await sql()`insert into settings (key, value) values (${"meet_client_check:" + id}, ${JSON.stringify({ at: new Date().toISOString(), was: stored, now: certain?.client.id ?? null, how: certain?.how ?? null })}::jsonb) on conflict (key) do nothing`;
+      await sql()`insert into settings (key, value) values (${"meet_client_check:" + id}, ${JSON.stringify({ at: new Date().toISOString(), was: stored, now: certain?.client.id ?? stored, how: certain?.how ?? null, guess })}::jsonb) on conflict (key) do nothing`;
     } catch (e) {
       out.push(`${short}: repair failed (${(e as Error).message.slice(0, 120)})`);
       await sql()`insert into settings (key, value) values (${"meet_client_check:" + id}, ${JSON.stringify({ at: new Date().toISOString(), error: (e as Error).message.slice(0, 200) })}::jsonb) on conflict (key) do nothing`;

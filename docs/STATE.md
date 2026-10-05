@@ -25,9 +25,11 @@ Last updated: 2026-10-05 (meeting client with certainty only, the repair of past
   unclear", nothing is filed under any client, the action items are held, and a "Which client?" card with the guess
   sits in the thread; the pick (or a typed name there) files everything and releases the action items
   (`refileMeeting`). An item carries its own client only when its words name one. The past records are repaired by
-  the hub itself, a dozen meetings per Meet poll, each once (`meet_client_repair`, `meet_client_check:<id>`): a
-  certain fact that names another client re-files the meeting and says so in its thread; a meeting whose client was
-  only a guess loses it and gets the card with that guess; a no-notes record is left. Nothing is deleted; cards made
+  the hub itself, a dozen meetings per Meet poll, each once (`meet_client_repair`, `meet_client_check:<id>`), silent
+  in the feed (Vishnu, same day: "don't send any feed message for the corrections"): a certain fact that names
+  another client re-files the meeting in the records and on its existing headline, nothing posted; a meeting whose
+  client was only a guess is left as it is and noted in its check row (`guess: true`), since asking would be a feed
+  message; a no-notes record is left. Nothing is deleted; cards made
   earlier keep their Pulp label and the thread says how many. Module `src/lib/meet-client.ts`; 12 tests.
 - **2026-09-15, soak decisions (Arun):** one Staging list for every card, no Needs scope gate (`gated` off in
   `config/routing.yaml`); no client or internal boards, every card on a department board; one MCP key per Claude
