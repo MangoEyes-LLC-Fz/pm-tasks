@@ -3,8 +3,10 @@ import { sql, allClients, enqueue } from "./db";
 import { resolveClientFromText } from "./resolve";
 import { sortMeeting } from "./llm/meeting";
 import { processMessage } from "./pipeline";
-import { postHeadline, editHeadline, postDetail } from "./review";
+import { postHeadline, editHeadline, postDetail, rememberThread, closeNeedsHumanCard } from "./review";
 import { pulp } from "./pulp";
+import * as gchat from "./gchat";
+import { certainMeetingClient, knownClientPeople, type KnownPerson } from "./meet-client";
 import type { Client, Message } from "./types";
 
 /**
@@ -252,14 +254,16 @@ export async function processNoteDoc(doc: NoteDoc): Promise<string> {
   };
   if (notesNotReady(notes)) return notReady(notes.trim().length < 400 ? "notes not written yet" : "Gemini still writing");
 
-  // Meeting-level client: title, attendee domains, then the sorter's own view.
-  const byTitle = resolveClientFromText(title, clients)?.client ?? null;
-  const byAttendee = attendees.map((e) => resolveClientFromText(e, clients)?.client ?? null).find(Boolean) ?? null;
-  const sorted = await sortMeeting({ title, notes, attendees, team: await teamNames(attendees), clients: clients.map((c) => `${c.name}${c.aliases?.length ? `; ${c.aliases.join(", ")}` : ""}`) });
+  const team = await teamNames(attendees);
+  const sorted = await sortMeeting({ title, notes, attendees, team, clients: clients.map((c) => `${c.name}${c.aliases?.length ? `; ${c.aliases.join(", ")}` : ""}`) });
   if (notesNotReady(notes, sorted.summary ?? [], sorted.items.length)) return notReady("no usable content yet");
   await sql()`delete from settings where key = ${retryKey}`;
-  const internal = clients.find((c) => c.scope === "internal") ?? null;
-  const meetingClient = byTitle ?? byAttendee ?? clientByName(sorted.meeting_client, clients) ?? null;
+  // Meeting-level client, with certainty only (2026-10-05, src/lib/meet-client.ts): the title, an attendee's address, a
+  // client person the hub knows, or an internal call where only the team spoke. The sorter's answer is a suggestion
+  // for the "which client?" card, never the client: a guess filed "Swathi / Vishnu" under the wrong clinic.
+  const sorterClient = clientByName(sorted.meeting_client, clients);
+  const certain = certainMeetingClient({ title, attendees, notes, clients, people: await knownClientPeople(clients), team, sorterClient });
+  const meetingClient = certain?.client ?? null;
 
   const ins = await sql()`insert into meetings (drive_file_id, title, held_at, organiser, attendees, client_id, scope, doc_url, notes, summary)
     values (${doc.id}, ${title}, ${heldAt.toISOString()}, ${doc.owner}, ${JSON.stringify(attendees)}::jsonb, ${meetingClient?.id ?? null}, ${meetingClient ? meetingClient.scope : "unknown"}, ${docUrl}, ${notes}, ${JSON.stringify(sorted.summary)}::jsonb)
@@ -275,7 +279,9 @@ export async function processNoteDoc(doc: NoteDoc): Promise<string> {
   const clientTodo: string[] = [];
   const followUps: string[] = [];
   for (const it of sorted.items) {
-    const c = clientByName(it.client, clients) ?? meetingClient ?? (it.kind === "action" ? internal : null);
+    // An item names its own client only when its words do ("Dr Tanov's videos as reference"); otherwise it is the
+    // meeting's. In an unclear meeting every item waits for the tap, like the meeting itself.
+    const c = resolveClientFromText(it.text, clients)?.client ?? meetingClient;
     if (it.kind === "action" && it.side === "client" && c?.scope !== "internal") {
       // The client's own homework (sign, grant access, send photos) is not the team's task: listed in the thread, no card.
       await sql()`insert into meeting_items (meeting_id, kind, client_id, text, owner, due_text, outcome) values (${meetingId}, 'action', ${c?.id ?? null}, ${it.text}, ${it.owner}, ${it.due}, 'client')`;
@@ -314,32 +320,185 @@ export async function processNoteDoc(doc: NoteDoc): Promise<string> {
 
   // One headline in the feed per meeting; the cards, ideas, decisions and summary all go inside its thread.
   const threadKey = `meet-${meetingId}`;
-  const who = meetingClient ? meetingClient.name : sorted.meeting_client?.toLowerCase().includes("mango") ? "MangoEyes internal" : "client unclear";
+  const who = meetingClient ? meetingClient.name : "client unclear";
   const day = heldAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
   const headName = await postHeadline(meetingHeadline({ title, who, day }), threadKey);
-  const tallyName = await postHeadline(meetingTallyLine(groups.size ? "reading the notes…" : await tallyText(meetingId), docUrl), threadKey);
+  const tallyName = await postHeadline(meetingTallyLine(groups.size && meetingClient ? "reading the notes…" : await tallyText(meetingId), docUrl), threadKey);
   await sql()`insert into settings (key, value) values (${"meet_head:" + meetingId}, ${JSON.stringify({ name: headName, tallyName, title, who, day, docUrl })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
   // The thread, in reading order (2026-09-22): In short · Decided · To do (the proposal cards follow from the jobs) · Also raised.
   const summary = (sorted.summary ?? []).slice(0, 5).map((x) => `• ${x}`).join("\n");
-  const todoNote = groups.size ? `*To do*\nThe team's action items follow below, one card each. Tap Create card, Remind me instead or No card on each.` : "";
+  const todoNote = groups.size ? (meetingClient ? `*To do*\nThe team's action items follow below, one card each. Tap Create card, Remind me instead or No card on each.` : `*To do*\nThe team's action items wait until the client is set below; then they follow here, one card each.`) : "";
   const raised = [...ideaLines.map((l) => `${l} · up for a decision on Monday`), ...clientTodo.map((l) => `${l} · the client's to-do, no card`)];
   const followNote = followUps.length ? `*Follow-ups, no card* (calls, syncs, things to look into: on record, yours to remember)\n${followUps.join("\n")}` : "";
   await postDetail([summary ? `*In short*\n${summary}` : "", decidedLines.length ? `*Decided*\n${decidedLines.join("\n")}` : "", todoNote, followNote, raised.length ? `*Also raised*\n${raised.join("\n")}` : ""].filter(Boolean).join("\n\n"), threadKey);
 
-  // Five action items per job: each ask costs a model call and a card, and a job must finish well inside a minute.
-  let jobs = 0;
-  for (const [, g] of groups) {
-    const parts: (typeof g.items)[] = [];
-    for (let i = 0; i < g.items.length; i += ACTIONS_PER_JOB) parts.push(g.items.slice(i, i + ACTIONS_PER_JOB));
-    for (let p = 0; p < parts.length; p++) {
-      const text = parts[p].map((it) => `- ${it.text}${it.owner ? ` (${it.owner})` : ""}${it.due ? ` — ${it.due}` : ""}`).join("\n");
-      await enqueue("meet_group", { meetingId, docId: doc.id, docUrl, title, owner: doc.owner, heldAt: heldAt.toISOString(), clientId: g.client?.id ?? null, text, threadKey, part: parts.length > 1 ? p + 1 : 0, items: parts[p].map((it) => it.text) });
-      jobs++;
-    }
+  const job = { meetingId, docId: doc.id, docUrl, title, owner: doc.owner, heldAt: heldAt.toISOString(), threadKey };
+  if (!meetingClient) {
+    // Unclear: the action items are kept, not run; the card in the thread sets the client and releases them.
+    const pending = [...groups.values()].map((g) => ({ clientId: g.client?.id ?? null, items: g.items.map((it) => ({ text: it.text, owner: it.owner, due: it.due })) }));
+    if (pending.length) await sql()`insert into settings (key, value) values (${"meet_pending:" + meetingId}, ${JSON.stringify({ ...job, groups: pending })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+    await askMeetingClient(meetingId, threadKey, title, sorterClient);
+    return `${title}: client unclear${sorterClient ? ` (the sorter guessed ${sorterClient.name})` : ""}, asked in the thread`;
   }
+  const jobs = await queueActionGroups(job, [...groups.values()].map((g) => ({ clientId: g.client?.id ?? null, items: g.items })));
   return `${title}: ${jobs ? `${jobs} action job${jobs > 1 ? "s" : ""} queued` : await tallyText(meetingId)}`;
 }
 const ACTIONS_PER_JOB = 5;
+
+type ActionItem = { text: string; owner: string | null; due: string | null };
+type GroupJob = { meetingId: string; docId: string; docUrl: string; title: string; owner: string | null; heldAt: string; threadKey: string };
+
+/** Five action items per job: each ask costs a model call and a card, and a job must finish well inside a minute. */
+async function queueActionGroups(job: GroupJob, groups: Array<{ clientId: string | null; items: ActionItem[] }>): Promise<number> {
+  let jobs = 0;
+  for (const g of groups) {
+    const parts: ActionItem[][] = [];
+    for (let i = 0; i < g.items.length; i += ACTIONS_PER_JOB) parts.push(g.items.slice(i, i + ACTIONS_PER_JOB));
+    for (let p = 0; p < parts.length; p++) {
+      const text = parts[p].map((it) => `- ${it.text}${it.owner ? ` (${it.owner})` : ""}${it.due ? ` — ${it.due}` : ""}`).join("\n");
+      await enqueue("meet_group", { ...job, clientId: g.clientId, text, part: parts.length > 1 ? p + 1 : 0, items: parts[p].map((it) => it.text) });
+      jobs++;
+    }
+  }
+  return jobs;
+}
+
+/** The "which client?" card in the meeting's thread: a dropdown with the sorter's guess named, or a typed name in the thread. */
+async function askMeetingClient(meetingId: string, threadKey: string, title: string, suggestion: Client | null): Promise<void> {
+  const rows = await sql()`select id, name from clients where scope in ('client', 'internal') order by (scope = 'internal'), name limit 100`;
+  const ask = suggestion ? `The hub's guess is ${suggestion.name}, but nothing in the call proves it. Pick the client below, or reply here with the name.` : "Nothing in the call names the client. Pick it below, or reply here with the name.";
+  if (!gchat.gchatConfigured()) { await postDetail(`*Which client?*\n${ask}`, threadKey); return; }
+  const card = gchat.meetingClientCard({ meetingId, title: headlineTitle(title), ask, clients: rows.map((r) => ({ id: String(r.id), name: String(r.name) })) });
+  const sent = await gchat.sendCard(gchat.reviewSpace(), card, ask, `meet-client-${meetingId}`, threadKey);
+  await rememberThread(sent.thread, { kind: "meeting_client", meetingId });
+  await sql()`insert into settings (key, value) values (${"meet_client_card:" + meetingId}, ${JSON.stringify({ card: sent.name, suggestion: suggestion?.name ?? null })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+}
+
+/**
+ * File a meeting under a client: from the card's dropdown, a typed name in the thread, or the hub itself when a
+ * certain fact turns up (the repair of 2026-10-05). The meeting, its items, its ideas and its unprocessed action
+ * messages move; the headline is rewritten; the held action items are queued. Cards already made keep their label in
+ * Pulp (the hub cannot relabel), and the thread says so.
+ */
+export async function refileMeeting(meetingId: string, client: Client, by: string, reason?: string): Promise<string> {
+  const rows = await sql()`select id, drive_file_id, title, held_at, client_id from meetings where id = ${meetingId}`;
+  if (!rows.length) return "That meeting is not on record any more.";
+  const m = rows[0];
+  const old = (m.client_id as string | null) ?? null;
+  const oldName = old ? String((await sql()`select name from clients where id = ${old}`)[0]?.name ?? old) : null;
+  await sql()`update meetings set client_id = ${client.id}, scope = ${client.scope} where id = ${meetingId}`;
+  await sql()`update meeting_items set client_id = ${client.id} where meeting_id = ${meetingId} and client_id is not distinct from ${old}`;
+  await sql()`update ideas set client_id = ${client.id} where meeting_id = ${meetingId} and client_id is not distinct from ${old}`;
+  // Action messages that still wait for a client run now under it; the "which client?" cards of those groups close.
+  const msgs = await sql()`select id, skip_reason from messages where channel = 'meet' and external_id like ${"meet:" + String(m.drive_file_id) + ":%"} and client_id is not distinct from ${old}`;
+  for (const r of msgs) {
+    await sql()`update messages set client_id = ${client.id}, scope = ${client.scope} where id = ${r.id}`;
+    await sql()`update requests set client_id = ${client.id} where message_id = ${r.id} and client_id is not distinct from ${old} and not exists (select 1 from tasks t where t.request_id = requests.id)`;
+    if (r.skip_reason === "unknown_client") {
+      await sql()`update messages set skip_reason = null where id = ${r.id}`;
+      await closeNeedsHumanCard(String(r.id), `👤 Client set to ${client.name} by ${by}; processing.`);
+      await enqueue("process_message", { messageId: String(r.id) });
+    }
+  }
+  const cards = await sql()`select count(*)::int as n from tasks t join requests r on r.id = t.request_id where r.message_id in (select id from messages where channel = 'meet' and external_id like ${"meet:" + String(m.drive_file_id) + ":%"}) and t.pulp_card_id is not null`;
+  // Held action items (an unclear meeting) go to the queue now.
+  const pend = await sql()`select value from settings where key = ${"meet_pending:" + meetingId}`;
+  let jobs = 0;
+  if (pend.length) {
+    const p = pend[0].value as GroupJob & { groups: Array<{ clientId: string | null; items: ActionItem[] }> };
+    jobs = await queueActionGroups({ meetingId: p.meetingId, docId: p.docId, docUrl: p.docUrl, title: p.title, owner: p.owner, heldAt: p.heldAt, threadKey: p.threadKey }, p.groups.map((g) => ({ clientId: g.clientId ?? client.id, items: g.items })));
+    await sql()`delete from settings where key = ${"meet_pending:" + meetingId}`;
+  }
+  // The headline names the client now; the tally follows; the card becomes the outcome line.
+  const head = await sql()`select value from settings where key = ${"meet_head:" + meetingId}`;
+  const h = (head[0]?.value as { name?: string | null; tallyName?: string | null; title?: string; who?: string; day?: string; docUrl?: string } | undefined) ?? null;
+  const threadKey = `meet-${meetingId}`;
+  const line = `👤 Client set to ${client.name}${oldName && oldName !== client.name ? ` (was ${oldName})` : ""} by ${by}${reason ? `: ${reason}` : ""}${jobs ? `; the action items follow below` : ""}${Number(cards[0]?.n) ? `; ${cards[0].n} card${Number(cards[0].n) > 1 ? "s" : ""} made earlier keep${Number(cards[0].n) > 1 ? "" : "s"} the old label in Pulp` : ""}.`;
+  if (h) {
+    await editHeadline(h.name ?? null, meetingHeadline({ title: h.title ?? String(m.title), who: client.name, day: h.day ?? "" }));
+    await sql()`update settings set value = value || ${JSON.stringify({ who: client.name })}::jsonb, updated_at = now() where key = ${"meet_head:" + meetingId}`;
+  }
+  const card = await sql()`select value from settings where key = ${"meet_client_card:" + meetingId}`;
+  const cardName = (card[0]?.value as { card?: string | null } | undefined)?.card ?? null;
+  if (cardName) {
+    try { await gchat.updateMessageText(cardName, line); } catch (e) { console.error("meeting client card update failed", (e as Error).message); }
+    await sql()`delete from settings where key = ${"meet_client_card:" + meetingId}`;
+  } else if (h) {
+    await postHeadline(line, threadKey);
+  }
+  if (!jobs) await refreshMeetingHeadline(meetingId);
+  return line;
+}
+
+/**
+ * The one-time repair (2026-10-05): every meeting read before this rule is looked at again with the same four facts.
+ * A certain fact that names a different client re-files the meeting and says so in its thread (Swathi / Vishnu →
+ * The SKIN Firm); a meeting whose client was only a guess loses it and gets the "which client?" card with that guess;
+ * a meeting with no client and nothing to file is left. Runs inside the Meet poll a dozen meetings at a time, each
+ * checked once, until none is left. Nothing is deleted.
+ */
+export async function repairMeetingClients(budgetMs = 25_000): Promise<string | null> {
+  const started = Date.now();
+  const state = await sql()`select value from settings where key = 'meet_client_repair'`;
+  const st = (state[0]?.value as { startedAt?: string; done?: boolean; checked?: number; corrected?: number; asked?: number } | undefined) ?? {};
+  if (st.done) return null;
+  if (!st.startedAt) {
+    st.startedAt = new Date().toISOString(); st.checked = 0; st.corrected = 0; st.asked = 0;
+    await sql()`insert into settings (key, value) values ('meet_client_repair', ${JSON.stringify(st)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+  }
+  const save = () => sql()`update settings set value = ${JSON.stringify(st)}::jsonb, updated_at = now() where key = 'meet_client_repair'`;
+  const rows = await sql()`select m.id, m.title, m.attendees, m.notes, m.client_id, m.scope, m.held_at,
+      exists (select 1 from settings s where s.key = 'meet_head:' || m.id::text) as has_thread,
+      exists (select 1 from meeting_items i where i.meeting_id = m.id) as has_items
+    from meetings m where m.created_at < ${st.startedAt} and m.notes <> ''
+      and not exists (select 1 from settings s where s.key = 'meet_client_check:' || m.id::text)
+    order by m.held_at desc limit 12`;
+  if (!rows.length) { st.done = true; await save(); return `client repair done: ${st.checked} meetings checked, ${st.corrected} corrected, ${st.asked} asked`; }
+  const clients = await allClients();
+  const internal = clients.find((c) => c.scope === "internal") ?? null;
+  const people: KnownPerson[] = await knownClientPeople(clients);
+  const team = await teamNames([]);
+  const out: string[] = [];
+  for (const m of rows) {
+    if (Date.now() - started > budgetMs) break;
+    const id = String(m.id);
+    const stored = (m.client_id as string | null) ?? null;
+    const storedClient = stored ? clients.find((c) => c.id === stored) ?? null : null;
+    const attendees = Array.isArray(m.attendees) ? (m.attendees as string[]) : [];
+    const certain = certainMeetingClient({ title: String(m.title), attendees, notes: String(m.notes), clients, people, team, sorterClient: storedClient });
+    const short = headlineTitle(String(m.title));
+    try {
+      if (certain && certain.client.id !== stored) {
+        await refileMeeting(id, certain.client, "the hub", certain.detail);
+        st.corrected = (st.corrected ?? 0) + 1;
+        out.push(`${short}: ${storedClient?.name ?? "no client"} → ${certain.client.name} (${certain.detail})`);
+      } else if (!certain && m.has_thread && (stored || m.has_items)) {
+        // A guess, or nothing: the record carries no client until a person sets it.
+        if (stored) {
+          await sql()`update meetings set client_id = null, scope = 'unknown' where id = ${id}`;
+          await sql()`update meeting_items set client_id = null where meeting_id = ${id} and client_id = ${stored}`;
+          await sql()`update ideas set client_id = null where meeting_id = ${id} and client_id = ${stored}`;
+          const head = await sql()`select value from settings where key = ${"meet_head:" + id}`;
+          const h = head[0]?.value as { name?: string | null; title?: string; day?: string } | undefined;
+          if (h) {
+            await editHeadline(h.name ?? null, meetingHeadline({ title: h.title ?? String(m.title), who: "client unclear", day: h.day ?? "" }));
+            await sql()`update settings set value = value || ${JSON.stringify({ who: "client unclear" })}::jsonb, updated_at = now() where key = ${"meet_head:" + id}`;
+          }
+        }
+        await askMeetingClient(id, `meet-${id}`, String(m.title), storedClient);
+        st.asked = (st.asked ?? 0) + 1;
+        out.push(`${short}: ${storedClient ? `${storedClient.name} was a guess` : "no client"}, asked`);
+      }
+      st.checked = (st.checked ?? 0) + 1;
+      await sql()`insert into settings (key, value) values (${"meet_client_check:" + id}, ${JSON.stringify({ at: new Date().toISOString(), was: stored, now: certain?.client.id ?? null, how: certain?.how ?? null })}::jsonb) on conflict (key) do nothing`;
+    } catch (e) {
+      out.push(`${short}: repair failed (${(e as Error).message.slice(0, 120)})`);
+      await sql()`insert into settings (key, value) values (${"meet_client_check:" + id}, ${JSON.stringify({ at: new Date().toISOString(), error: (e as Error).message.slice(0, 200) })}::jsonb) on conflict (key) do nothing`;
+    }
+    await save();
+  }
+  return `client repair: ${out.length ? out.join("; ") : "nothing to change in this batch"}`;
+}
 
 /**
  * Who the MangoEyes team is, by name: the members of the Task Hub Drop space (the whole team is in it), plus anyone
@@ -509,6 +668,9 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
     try { await sql()`insert into settings (key, value) values ('meet_poll_last', ${JSON.stringify({ at: new Date().toISOString(), found: 0, processed, errors, skipped: skipped.map((x) => `${x.as}: ${x.why}`), ...extra })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
   };
   // A trace before any slow step, so a run that is cut short still shows where it was.
+  await save({ phase: "repair" });
+  // The one-time look at every meeting read before the certainty rule (2026-10-05); a no-op once done.
+  try { const rep = await repairMeetingClients(); if (rep) processed.push(rep); } catch (e) { errors.push(`client repair: ${(e as Error).message.slice(0, 200)}`); }
   await save({ phase: "listing" });
   let docs: NoteDoc[] = [];
   const readerErrors: Array<{ as: string; error: string }> = [];

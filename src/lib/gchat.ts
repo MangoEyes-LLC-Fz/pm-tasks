@@ -233,6 +233,20 @@ export function needsHumanCard(p: { messageId: string; clientName: string; why: 
   return { header: { title: `${p.clientName} · ${ask.split("?")[0].split(".")[0]}`, subtitle: ask }, sections: [{ widgets }] };
 }
 
+/** A meeting whose client nothing in the call proves (2026-10-05): the dropdown files the meeting and releases its action items. */
+export function meetingClientCard(p: { meetingId: string; title: string; ask: string; clients: Array<{ id: string; name: string }> }): chat_v1.Schema$GoogleAppsCardV1Card {
+  return {
+    header: { title: `Which client? · ${p.title}`, subtitle: p.ask },
+    sections: [{ widgets: [{
+      selectionInput: {
+        name: "client", label: "Which client?", type: "DROPDOWN",
+        items: p.clients.map((c) => ({ text: c.name, value: c.id, selected: false })),
+        onChangeAction: { function: fnRef("pick_meeting_client"), parameters: [{ key: "meetingId", value: p.meetingId }] },
+      },
+    }] }],
+  };
+}
+
 /**
  * The proposal (2026-09-22): a task is made only after one tap here. Four dropdowns, pre-filled and changeable, all
  * visible, then three buttons. Create card puts it in To Do, assigned; Remind me instead sets a reminder for the
