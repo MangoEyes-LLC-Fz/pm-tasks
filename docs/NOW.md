@@ -29,18 +29,19 @@ meeting, its two decisions and its idea under HC MedSpa. Now (`src/lib/meet-clie
 - Otherwise the headline reads "client unclear", nothing is filed under any client, the action items are held, and a
   "Which client?" card in the thread names the hub's guess. The pick, or a typed name in the thread, files the
   meeting, its items, its ideas and its waiting action messages, rewrites the headline and queues the action items.
-- The repair runs by itself inside the Meet poll, a dozen meetings per run, each once: a certain fact that names
-  another client re-files the meeting and says so in its thread (Swathi / Vishnu → The SKIN Firm); a meeting whose
-  client was only a guess loses it and gets the card with that guess; a no-notes record is left. Nothing is deleted.
+- The repair runs by itself inside the Meet poll, a dozen meetings per run, each once, silent in the feed (Vishnu:
+  no feed message for the corrections): a certain fact that names another client re-files the meeting in the records
+  and on its existing headline (Swathi / Vishnu → The SKIN Firm), nothing posted; a meeting whose client was only a
+  guess is left as it is and noted in its check row (`guess: true`); a no-notes record is left. Nothing is deleted.
 
 ## Being watched (proofs that need real traffic)
 
 - The repair (within an hour of the deploy): `meet_poll_last.processed` carries "client repair" lines;
-  `meeting_detail` for "Swathi / Vishnu" reads The SKIN Firm and its thread headline too; past meetings whose client
-  was a guess read "client unclear" with the card in their thread; settings `meet_client_repair` ends `done` with its
-  counts. About a dozen past meetings are expected to ask (the "Meeting started …" calls filed under Leicester
-  MediSpa, The SKIN Firm and The Eye Doctor by guess, "Nitin / Nishit Medispa", "Jaishri Malhotra / Vishnu",
-  "Introduction Call"); a tap on each card files it.
+  `meeting_detail` for "Swathi / Vishnu" reads The SKIN Firm and its thread headline too, with nothing new posted;
+  settings `meet_client_repair` ends `done` with its counts (`asked` counts the unproven guesses left as they are).
+  About a dozen past meetings are unproven guesses (the "Meeting started …" calls filed under Leicester MediSpa,
+  The SKIN Firm and The Eye Doctor, "Nitin / Nishit Medispa", "Jaishri Malhotra / Vishnu", "Introduction Call");
+  they keep their client until someone asks the hub to question them (a later decision).
 - The next meeting whose title names nobody the hub knows: card in the thread, no client until the tap, action items
   after the tap.
 - From 30 Sep, still open: the group-Cc mail path (a no-ask reply shows as `no_ask`, nothing in the feed); Slack
