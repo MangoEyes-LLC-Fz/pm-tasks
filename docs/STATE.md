@@ -30,7 +30,10 @@ Last updated: 2026-10-05 (meeting client with certainty only, the repair of past
   another client re-files the meeting in the records and on its existing headline, nothing posted; a meeting whose
   client was only a guess is left as it is and noted in its check row (`guess: true`), since asking would be a feed
   message; a no-notes record is left. Nothing is deleted; cards made
-  earlier keep their Pulp label and the thread says how many. Module `src/lib/meet-client.ts`; 12 tests.
+  earlier keep their Pulp label and the thread says how many. The repair's first run (17:00 UTC, the version before
+  "no feed message") flipped nine past meetings to "client unclear" and posted a card in each thread; the hub undid
+  that itself on its next poll (`undoFirstRepairBatch`: cards deleted, clients and headlines restored, `undone` on
+  `meet_client_repair`). Module `src/lib/meet-client.ts`; 12 tests.
 - **2026-09-15, soak decisions (Arun):** one Staging list for every card, no Needs scope gate (`gated` off in
   `config/routing.yaml`); no client or internal boards, every card on a department board; one MCP key per Claude
   account, the hub asks who is filing ("Anuj via Claude-Arun"); the kill switch stays untested until ever needed;
