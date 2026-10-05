@@ -434,6 +434,37 @@ export async function refileMeeting(meetingId: string, client: Client, by: strin
   return line;
 }
 
+/** Put back what the repair's first batch undid: a check row of the first shape (`how` null, no `guess`) marks a flipped meeting. */
+async function undoFirstRepairBatch(): Promise<number> {
+  const rows = await sql()`select key, value from settings where key like 'meet_client_check:%'`;
+  const clients = await allClients();
+  let n = 0;
+  for (const r of rows) {
+    const v = r.value as { at?: string; was?: string | null; now?: string | null; how?: string | null; guess?: boolean; error?: string };
+    if (v.error || "guess" in v || v.how || v.now) continue; // the quiet shape, a correction, or a failure: not flipped
+    const id = String(r.key).split(":")[1];
+    const card = await sql()`select value from settings where key = ${"meet_client_card:" + id}`;
+    const cardName = (card[0]?.value as { card?: string | null } | undefined)?.card ?? null;
+    if (cardName) { try { await gchat.deleteMessage(cardName); } catch (e) { console.error("repair card not deleted", (e as Error).message); } }
+    await sql()`delete from settings where key = ${"meet_client_card:" + id}`;
+    const was = v.was ? clients.find((c) => c.id === v.was) ?? null : null;
+    if (was) {
+      await sql()`update meetings set client_id = ${was.id}, scope = ${was.scope} where id = ${id} and client_id is null`;
+      await sql()`update meeting_items set client_id = ${was.id} where meeting_id = ${id} and client_id is null`;
+      await sql()`update ideas set client_id = ${was.id} where meeting_id = ${id} and client_id is null`;
+      const head = await sql()`select value from settings where key = ${"meet_head:" + id}`;
+      const h = head[0]?.value as { name?: string | null; title?: string; day?: string } | undefined;
+      if (h) {
+        await editHeadline(h.name ?? null, meetingHeadline({ title: h.title ?? "", who: was.name, day: h.day ?? "" }));
+        await sql()`update settings set value = value || ${JSON.stringify({ who: was.name })}::jsonb, updated_at = now() where key = ${"meet_head:" + id}`;
+      }
+    }
+    await sql()`update settings set value = ${JSON.stringify({ ...v, now: v.was ?? null, guess: !!v.was, undone: new Date().toISOString() })}::jsonb, updated_at = now() where key = ${String(r.key)}`;
+    n++;
+  }
+  return n;
+}
+
 /**
  * The one-time repair (2026-10-05): every meeting read before this rule is looked at again with the same four facts.
  * A certain fact that names a different client re-files the meeting in the records and on its existing headline
@@ -445,8 +476,15 @@ export async function refileMeeting(meetingId: string, client: Client, by: strin
 export async function repairMeetingClients(budgetMs = 25_000): Promise<string | null> {
   const started = Date.now();
   const state = await sql()`select value from settings where key = 'meet_client_repair'`;
-  const st = (state[0]?.value as { startedAt?: string; done?: boolean; checked?: number; corrected?: number; asked?: number } | undefined) ?? {};
+  const st = (state[0]?.value as { startedAt?: string; done?: boolean; checked?: number; corrected?: number; asked?: number; undone?: number } | undefined) ?? {};
   if (st.done) return null;
+  if (st.undone === undefined) {
+    // The repair's first run (17:00 UTC, before "no feed message") flipped nine past meetings to "client unclear"
+    // and posted a card in each thread. Undone once here: the cards go, the clients come back, the headlines too.
+    st.undone = await undoFirstRepairBatch();
+    st.asked = 0;
+    await sql()`insert into settings (key, value) values ('meet_client_repair', ${JSON.stringify(st)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+  }
   if (!st.startedAt) {
     st.startedAt = new Date().toISOString(); st.checked = 0; st.corrected = 0; st.asked = 0;
     await sql()`insert into settings (key, value) values ('meet_client_repair', ${JSON.stringify(st)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
