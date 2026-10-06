@@ -54,6 +54,25 @@ describe("email rules", () => {
   it("allows ad-platform senders even if automated", () => {
     expect(emailNoise({ ...e, from: "ads-noreply@google.com", headers: { Precedence: "bulk" } }, cfg).skip).toBe(false);
   });
+  it("reads a copy that came through the hub's group despite Google Groups' list headers (2026-10-06)", () => {
+    // What Google Groups adds to the copy it redistributes: the marks of a newsletter on any other mail.
+    const group = {
+      Precedence: "list", "List-Unsubscribe": "<mailto:googlegroups-manage+1234+unsubscribe@googlegroups.com>",
+      "List-ID": "<clientsuccess.team.mangoeyesagency.com>", "Mailing-list": "list clientsuccess.team@mangoeyesagency.com; contact clientsuccess.team+owners@mangoeyesagency.com",
+      To: "fatima@hcmedspa.com", Cc: "Client Success <clientsuccess.team@mangoeyesagency.com>",
+    };
+    expect(emailNoise({ ...e, headers: group }, cfg).skip).toBe(false);
+    expect(emailNoise({ ...e, from: "sneha@mangoeyesagency.com", fromIsStaff: true, headers: group }, cfg).skip).toBe(false);
+    // Any one of the group's marks is enough: the address in Cc, in List-Id (the @ as a dot), or in Mailing-list.
+    expect(emailNoise({ ...e, headers: { Precedence: "list", Cc: "clientsuccess.team@mangoeyesagency.com" } }, cfg).skip).toBe(false);
+    expect(emailNoise({ ...e, headers: { Precedence: "list", "List-Unsubscribe": "<x>", "List-ID": "<clientsuccess.team.mangoeyesagency.com>" } }, cfg).skip).toBe(false);
+    expect(emailNoise({ ...e, headers: { Precedence: "bulk", "Mailing-list": "list clientsuccess.team@mangoeyesagency.com; contact x" } }, cfg).skip).toBe(false);
+    // A newsletter that never touched the group is still a newsletter; an auto-reply or no-reply through the group is still skipped.
+    expect(emailNoise({ ...e, headers: { Precedence: "list", "List-ID": "<news.phorest.com>", To: "arun@mangoeyesagency.com" } }, cfg).reason).toBe("bulk_precedence");
+    expect(emailNoise({ ...e, headers: { "List-Unsubscribe": "<x>", "List-ID": "<news.phorest.com>" } }, cfg).reason).toBe("newsletter");
+    expect(emailNoise({ ...e, headers: { ...group, "Auto-Submitted": "auto-replied" } }, cfg).reason).toBe("auto_submitted");
+    expect(emailNoise({ ...e, from: "noreply@zenoti.com", headers: group }, cfg).reason).toBe("automated_sender");
+  });
   it("reads a team member's mail like anyone's: a copy to the hub's group is an intake, forwards too (2026-09-30)", () => {
     expect(emailNoise({ ...e, from: "arun@mangoeyesagency.com", fromIsStaff: true }, cfg).skip).toBe(false);
     expect(emailNoise({ ...e, from: "arun@mangoeyesagency.com", fromIsStaff: true, isForward: true }, cfg).skip).toBe(false);

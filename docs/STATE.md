@@ -11,10 +11,24 @@ Entries below are dated; a later entry supersedes an earlier one (for example th
 nudges described in older entries are gone: Drop space and 20 min / 1 h / 1 day / daily reminders since 2026-09-15).
 Keep it updated with every change.
 
-Last updated: 2026-10-05 (meeting client with certainty only, the repair of past meetings; 23 Sep: board mirror, cards from Claude made at once, Remind me on; 22 Sep: five kinds, the proposal card, reminders, Monday ideas, the 10:00 Today brief; 21 Sep: no Slack reactions; 18 Sep: PMs board rules, short headlines, Vercel cost, `main` branch; `CLAUDE.md` is the entry point).
+Last updated: 2026-10-06 (group mail dropped as bulk, fixed; 5 Oct: meeting client with certainty only, the repair of past meetings; 23 Sep: board mirror, cards from Claude made at once, Remind me on; 22 Sep: five kinds, the proposal card, reminders, Monday ideas, the 10:00 Today brief; 21 Sep: no Slack reactions; 18 Sep: PMs board rules, short headlines, Vercel cost, `main` branch; `CLAUDE.md` is the entry point).
 
 ## Decisions finalised
 
+- **2026-10-06, mail through the group was dropped as bulk (Vishnu):** Vishnu saw that most mails copying
+  `clientsuccess.team@` (taskhub@ is a member, so it is in Cc whenever the group is) got nothing in the feed. Found
+  through `recent_messages`: the hub read every one of them (62 in the week), but 42 were skipped as `bulk_precedence`
+  before any model call. Google Groups stamps the copy it redistributes with mailing-list headers (`Precedence: list`,
+  `List-Id: <clientsuccess.team.mangoeyesagency.com>`, `List-Unsubscribe`, `Mailing-list`), the marks the newsletter
+  rule of PLAN §4d looks for; and since Gmail keeps one copy per Message-ID, a mail sent straight to taskhub@ carries
+  them too whenever the group's copy landed first. The 30 Sep proof ("a reply with no ask shows as no_ask") never ran:
+  the mails that did reach the model were the ones whose direct copy won the race. Decided: a mail whose To, Cc,
+  Delivered-To, List-Id or Mailing-list names one of the hub's groups is never a newsletter (`viaIntakeGroup` in
+  `src/lib/filter/noise.ts`); the no-reply sender and auto-reply rules still apply through the group; a real newsletter
+  someone copies to the group reaches the model and is quiet. The mail poll's self-heal re-runs once the group mails
+  dropped in the last three days (`RETIRED_SKIP_REASONS` = staff_outgoing, bulk_precedence), the same way the 30 Sep
+  fix re-ran the staff-outgoing drops: a reply with no ask stays quiet, an ask becomes a task to confirm addressed to
+  the sender. Older drops (30 Sep to 3 Oct, 18 mails) are left as they are: their threads have moved on. One test.
 - **2026-10-05, a meeting's client is set only with certainty (Vishnu):** the feed showed "Swathi / Vishnu · HC MedSpa"
   for a call with The SKIN Firm's Swathi and Dr Naren (their 30-day notice). The title and the attendee list named no
   client, so the Meet reader took the sorter's guess as the client, and the meeting, its two decisions and its idea

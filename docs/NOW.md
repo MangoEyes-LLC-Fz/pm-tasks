@@ -1,13 +1,13 @@
 # Where the hub is today
 
-**Updated 2026-10-05, end of the session.** This page is the first thing a new session reads: what is live, what
+**Updated 2026-10-06, end of the session.** This page is the first thing a new session reads: what is live, what
 changed last, what is being watched, what waits on Arun, and how to see the live hub. It is rewritten at the end of
 every working session; the history behind every line is in `docs/STATE.md` (dated decisions) and `git log`.
 
 ## Live, on `main`
 
 Everything in `docs/FEATURES.md` marked Live or Built is deployed. Both branches carry the same commits: the session
-branch (`claude/dreamy-clarke-3dyqx7` this time) is fast-forwarded into `main` after every push. Vercel deploys in
+branch (`claude/gifted-sagan-ve2x4m` this time) is fast-forwarded into `main` after every push. Vercel deploys in
 about two minutes.
 
 The hub in one breath: client asks arrive from Google Chat (DM and the Drop space), mail (taskhub@ and the group
@@ -16,7 +16,24 @@ reminder, idea, rule or note; only a task is proposed, as a card in the feed thr
 their tap makes the Pulp card (To Do, assigned) and the PM Overview sheet row; every card on every department board is
 mirrored so Claude can answer about all of them; the 10:00 India post names what each person has to do today.
 
-## What changed on 2026-10-05 (this session)
+## What changed on 2026-10-06 (this session)
+
+**Mail through the group reaches the model again.** Vishnu saw that most mails copying `clientsuccess.team@`
+(taskhub@ is a member, so it rides along in Cc) got nothing in the feed. `recent_messages` showed the hub had read all
+62 of the week's mails but skipped 42 as `bulk_precedence` before any model call: Google Groups stamps the copy it
+redistributes with mailing-list headers (Precedence: list, List-Id, List-Unsubscribe, Mailing-list), which the
+newsletter rule took at face value; Gmail keeps one copy per Message-ID, so a mail sent straight to taskhub@ carried
+them too whenever the group's copy landed first. The group-Cc path of 30 Sep had therefore never really run. Now
+(`viaIntakeGroup` in `src/lib/filter/noise.ts`, FEATURES 1.8, STATE 2026-10-06):
+
+- A mail whose To, Cc, Delivered-To, List-Id or Mailing-list names one of the hub's groups is never a newsletter.
+  No-reply senders and auto-replies through the group are still skipped; a real newsletter copied to the group reaches
+  the model and is quiet.
+- The mail poll re-runs once the group mails dropped in the last three days (about 24, from 4 to 6 Oct), exactly as
+  the 30 Sep fix re-ran the staff-outgoing drops: no-ask replies stay quiet, asks become tasks to confirm addressed to
+  their senders. The 18 older drops (30 Sep to 3 Oct) are left as they are.
+
+## What changed on 2026-10-05
 
 **A meeting's client is set only with certainty; the past meetings are repaired by the hub.** Vishnu saw
 "📝 Swathi / Vishnu · HC MedSpa · 4 Oct" in the feed for a call with The SKIN Firm's Swathi and Dr Naren. The
@@ -44,8 +61,13 @@ meeting, its two decisions and its idea under HC MedSpa. Now (`src/lib/meet-clie
   they keep their client until someone asks the hub to question them (a later decision).
 - The next meeting whose title names nobody the hub knows: card in the thread, no client until the tap, action items
   after the tap.
-- From 30 Sep, still open: the group-Cc mail path (a no-ask reply shows as `no_ask`, nothing in the feed); Slack
-  proposals @mentioning the tagged person; hand-made cards without a client label (`board_mirror_last.waitingLabel`).
+- The group-mail fix (first poll after the deploy): `gmail_poll_last.outcomes` carries "N mail(s) … re-run";
+  `recent_messages` (channel email, includeSkipped) shows no `bulk_precedence` newer than the deploy; the re-run mails
+  end as `no_ask`, a proposal addressed to the sender, or a which-client card. Then the next client reply through the
+  group with an ask gets its task-to-confirm line within two minutes. A burst of a few proposals for 4 to 6 Oct threads
+  is expected right after the deploy; "No card" closes the ones already handled.
+- From 30 Sep, still open: Slack proposals @mentioning the tagged person; hand-made cards without a client label
+  (`board_mirror_last.waitingLabel`).
 
 ## Waiting on Arun
 
@@ -54,7 +76,7 @@ meeting, its two decisions and its idea under HC MedSpa. Now (`src/lib/meet-clie
 - Add a client label to the waiting hand-made cards (Video, Graphics); each gets its sheet row within five minutes.
 - Config tab: delete the row "Lester Medispa"; add alias "HC Medi Spa" to HC MedSpa and "LMS" to Leicester MediSpa; fill `email_domains` for clients that mail from their own domain (HC MedSpa: hcmedspa.com).
 - Neon: pin compute to 0.25 CU.
-- Google Group clientsuccess.team@: confirm it delivers to members and that taskhub@/arun@ is a member.
+- Google Group clientsuccess.team@: delivery to taskhub@ is confirmed by the week's 62 mails (6 Oct); nothing left to do.
 - Pulp: the board read is capped at 1000 cards and accepts no paging; the fix is on Pulp's side.
 
 ## Awaiting Arun's go (proposed, not built)

@@ -284,12 +284,14 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
 export const HISTORY_MARKER = "Earlier in this thread (context only, not the ask):";
 
 /**
- * Self-heal: mails the retired "staff outgoing" rule dropped in its last three days (until 2026-09-30 a team member's
- * mail that only copied the hub was skipped) are re-run once. process_message updates the row in place, so a re-run
- * never repeats: the reason changes or a request appears.
+ * Self-heal: mails a retired rule dropped in its last three days are re-run once. Until 2026-09-30 a team member's
+ * mail that only copied the hub was skipped as "staff outgoing"; until 2026-10-06 every copy that came through the
+ * hub's group was skipped as "bulk_precedence" (Google Groups' list headers read as a newsletter's). process_message
+ * updates the row in place, so a re-run never repeats: the reason changes or a request appears.
  */
+export const RETIRED_SKIP_REASONS = ["staff_outgoing", "bulk_precedence"];
 async function requeueDroppedIntakeMails(): Promise<number> {
-  const hits = await sql()`select id from messages where channel = 'email' and skip_reason = 'staff_outgoing' and created_at > now() - interval '3 days' limit 50`;
+  const hits = await sql()`select id from messages where channel = 'email' and skip_reason = any(${RETIRED_SKIP_REASONS}::text[]) and created_at > now() - interval '3 days' limit 50`;
   for (const r of hits) {
     await sql()`update messages set skip_reason = 'requeued' where id = ${r.id}`;
     await enqueue("process_message", { messageId: String(r.id) }, 0);
@@ -301,7 +303,7 @@ async function requeueDroppedIntakeMails(): Promise<number> {
 export async function pollMailbox(): Promise<{ read: number; outcomes: string[]; errors: string[] }> {
   const outcomes: string[] = [], errors: string[] = [];
   let mails: gmail_v1.Schema$Message[] = [];
-  try { const n = await requeueDroppedIntakeMails(); if (n) outcomes.push(`${n} mail(s) to ${intakeAddress()} re-run (were dropped as staff outgoing)`); } catch (e) { errors.push(`requeue: ${(e as Error).message.slice(0, 120)}`); }
+  try { const n = await requeueDroppedIntakeMails(); if (n) outcomes.push(`${n} mail(s) to ${intakeAddress()} re-run (dropped earlier as staff outgoing or as a group copy read as bulk)`); } catch (e) { errors.push(`requeue: ${(e as Error).message.slice(0, 120)}`); }
   try { mails = await fetchNewMails(); } catch (e) { return { read: 0, outcomes, errors: [(e as Error).message.slice(0, 200)] }; }
   for (const raw of mails) {
     try {

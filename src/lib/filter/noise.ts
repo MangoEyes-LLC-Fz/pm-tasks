@@ -63,6 +63,26 @@ export interface EmailNoiseInput {
   text: string;
 }
 
+/**
+ * True when the mail reached the hub through one of its own groups (clientsuccess.team@, `email_intake_groups`).
+ * Google Groups stamps the copy it redistributes with mailing-list headers (Precedence: list, List-Id, List-Unsubscribe,
+ * Mailing-list), the very marks of a newsletter on any other mail; and Gmail keeps one copy per Message-ID, so even a
+ * mail sent straight to taskhub@ carries them when the group's copy arrived first. Found 2026-10-06: 42 of a week's
+ * 62 mails were dropped as "bulk_precedence" and never reached the model. The group shows in To, Cc or Delivered-To,
+ * in Mailing-list ("list X@d; contact X+owners@d") or in List-Id ("<X.d>", the @ replaced by a dot).
+ * `headers` has lower-case names and values.
+ */
+export function viaIntakeGroup(headers: Record<string, string>, groups: string[]): boolean {
+  const fields = ["to", "cc", "delivered-to", "x-original-to", "mailing-list", "list-id", "x-google-group-id"].map((k) => headers[k] ?? "").join("\n");
+  if (!fields.trim()) return false;
+  return groups.some((g) => {
+    const addr = g.trim().toLowerCase();
+    if (!addr) return false;
+    const [local, domain] = addr.split("@");
+    return fields.includes(addr) || (!!domain && fields.includes(`<${local}.${domain}>`));
+  });
+}
+
 export function emailNoise(m: EmailNoiseInput, cfg: NoiseConfig): NoiseVerdict {
   const from = m.from.toLowerCase();
   const allow = cfg.email_allow_senders.some((s) => from.includes(s.toLowerCase()));
@@ -72,8 +92,12 @@ export function emailNoise(m: EmailNoiseInput, cfg: NoiseConfig): NoiseVerdict {
     if (cfg.email_skip_senders.some((s) => from.includes(s.toLowerCase()))) return { skip: true, reason: "automated_sender" };
     const h = Object.fromEntries(Object.entries(m.headers).map(([k, v]) => [k.toLowerCase(), v.toLowerCase()]));
     if (h["auto-submitted"] && h["auto-submitted"] !== "no") return { skip: true, reason: "auto_submitted" };
-    if (h["precedence"] === "bulk" || h["precedence"] === "list") return { skip: true, reason: "bulk_precedence" };
-    if (h["list-unsubscribe"]) return { skip: true, reason: "newsletter" };
+    // The group's own list headers are not a newsletter's (2026-10-06); an automated sender or auto-reply through the
+    // group is still caught above, and a real newsletter copied to the group reaches the model, which finds no ask.
+    if (!viaIntakeGroup(h, cfg.email_intake_groups ?? [])) {
+      if (h["precedence"] === "bulk" || h["precedence"] === "list") return { skip: true, reason: "bulk_precedence" };
+      if (h["list-unsubscribe"]) return { skip: true, reason: "newsletter" };
+    }
   }
   const text = stripQuotedHistory(m.text).trim();
   if (text.length < cfg.min_chars) return { skip: true, reason: "too_short" };
