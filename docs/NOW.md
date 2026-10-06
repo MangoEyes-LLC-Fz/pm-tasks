@@ -65,7 +65,10 @@ meeting, its two decisions and its idea under HC MedSpa. Now (`src/lib/meet-clie
   `recent_messages` (channel email, includeSkipped) shows no `bulk_precedence` newer than the deploy; the re-run mails
   end as `no_ask`, a proposal addressed to the sender, or a which-client card. Then the next client reply through the
   group with an ask gets its task-to-confirm line within two minutes. A burst of a few proposals for 4 to 6 Oct threads
-  is expected right after the deploy; "No card" closes the ones already handled.
+  is expected right after the deploy; "No card" closes the ones already handled. **Passed 18:29 UTC**: four tasks to
+  confirm and three which-client cards from the re-run, and the first new group mail after the deploy read as `no_ask`.
+  The which-client cards came from mails naming no client whose senders are at hcmedspa.com and abelamedical.co.uk:
+  the Config `email_domains` step below would have filed them.
 - From 30 Sep, still open: Slack proposals @mentioning the tagged person; hand-made cards without a client label
   (`board_mirror_last.waitingLabel`).
 
@@ -74,7 +77,7 @@ meeting, its two decisions and its idea under HC MedSpa. Now (`src/lib/meet-clie
 - Archive one of the two "Finalise model for endolift training session" cards in Pulp (a duplicate made before the
   twin-title collapse; the hub cannot archive cards).
 - Add a client label to the waiting hand-made cards (Video, Graphics); each gets its sheet row within five minutes.
-- Config tab: delete the row "Lester Medispa"; add alias "HC Medi Spa" to HC MedSpa and "LMS" to Leicester MediSpa; fill `email_domains` for clients that mail from their own domain (HC MedSpa: hcmedspa.com).
+- Config tab: delete the row "Lester Medispa"; add alias "HC Medi Spa" to HC MedSpa and "LMS" to Leicester MediSpa; fill `email_domains` for clients that mail from their own domain (HC MedSpa: hcmedspa.com; Abela: abelamedical.co.uk). Three "which client?" cards on 6 Oct came from this gap.
 - Neon: pin compute to 0.25 CU.
 - Google Group clientsuccess.team@: delivery to taskhub@ is confirmed by the week's 62 mails (6 Oct); nothing left to do.
 - Pulp: the board read is capped at 1000 cards and accepts no paging; the fix is on Pulp's side.
