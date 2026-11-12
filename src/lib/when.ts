@@ -130,6 +130,18 @@ export function workingDaysAgo(now: Date, days: number): Date {
   return d;
 }
 
+/** `days` working days forward from now, same time of day. Inverse of `workingDaysAgo`. */
+export function workingDaysFrom(now: Date, days: number): Date {
+  const d = new Date(now);
+  let left = days;
+  while (left > 0) {
+    d.setTime(d.getTime() + 24 * 3_600_000);
+    const wd = teamParts(d).weekday;
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  return d;
+}
+
 export function isMorningMinute(now = new Date()): boolean {
   const p = teamParts(now);
   return p.hour === MORNING_HOUR && p.minute === 0;

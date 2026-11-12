@@ -1,7 +1,7 @@
 import { WebClient } from "@slack/web-api";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "./config";
-import { sql } from "./db";
+import { enqueue, sql } from "./db";
 import type { Client, Draft, Message, RouteDecision } from "./types";
 import { clientFromKnownPeople } from "./resolve";
 
@@ -267,6 +267,5 @@ export async function postP1Ping(p: { requestId: string; client: Client | null; 
 
 /** A nudge or follow-up on an existing task: queue a card comment and mark the source message. */
 export async function postThreadFollowupComment(p: { taskId: string | null; requestId: string; message: Message; flag?: "client_waiting" }): Promise<void> {
-  await sql()`
-    insert into queue (kind, payload) values ('card_comment', ${JSON.stringify({ taskId: p.taskId, requestId: p.requestId, text: p.message.text, permalink: p.message.permalink, flag: p.flag ?? null })}::jsonb)`;
+  await enqueue("card_comment", { taskId: p.taskId, requestId: p.requestId, text: p.message.text, permalink: p.message.permalink, flag: p.flag ?? null });
 }

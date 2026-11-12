@@ -113,6 +113,10 @@ When a real message is handled wrongly, fix the cause, not the case:
 
 Each fix: change, push, wait for the deploy, re-run the failed check. Record the decision in `docs/STATE.md`.
 
+## Watch after the 2026-11-12 Neon change
+
+The schedules did not change. What changed is that a quiet run does not open Postgres. After the deploy, on a stretch with no mail, no Drop message, no Slack event and no reminder due: Neon compute for project `delicate-king-60816111` should suspend (not sit at 0.25 CU). The tick JSON should say `idleCache: "on"`. `/api/health` should stay `ok: true` with `db.touched: false`. A real Drop message, a real mail, a real Slack event, and a reminder whose time has come should still land in the feed on the same schedules as before. `hub_status` should show poll times from the last few minutes, not from the last database write.
+
 ## Exit criteria for the soak
 
 - Every row in `docs/FEATURES.md` reads Live or Dropped. No row reads Built.

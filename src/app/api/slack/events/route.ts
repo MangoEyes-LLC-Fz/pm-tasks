@@ -5,7 +5,7 @@ import { verifySlackSignature, web, slackUser, userNames, homeTeamId, downloadSl
 import { slackToMessage, mentionedUsers, isAudioFile, type SlackMessageEvent } from "@/lib/normalize/slack";
 import { slackNoise } from "@/lib/filter/noise";
 import { noise, env } from "@/lib/config";
-import { allClients, sql, getSetting } from "@/lib/db";
+import { allClients, enqueue, sql, getSetting } from "@/lib/db";
 import { processMessage, storeSkipped } from "@/lib/pipeline";
 import { approveRequest, dismissRequest, mergeRequest } from "@/lib/tasks";
 import { resolveClientFromText, stripClientPrefix } from "@/lib/resolve";
@@ -81,7 +81,7 @@ async function handleMessageEvent(ev: SlackMessageEvent, teamId: string | null) 
         const base = slackToMessage(ev, { teamId, homeTeamId: home, clients, senderIsStaff, senderName: who.name, intakeChannelId: intakeId, workspaceUrl, userNames: names });
         const job = await startLongTranscription(buf, audio.mimetype ?? "", audio.name ?? "", undefined, hints);
         const stored = await storeSkipped(base, "transcribing");
-        await sql()`insert into queue (kind, payload, next_run_at) values ('transcribe_poll', ${JSON.stringify({ messageId: stored.id, job, typed: base.text })}::jsonb, now() + interval '60 seconds')`;
+        await enqueue("transcribe_poll", { messageId: stored.id, job, typed: base.text }, 60);
         await postText(`🎙️ Voice clip from ${base.sender} in ${base.clientId ? clients.find((c) => c.id === base.clientId)?.name ?? "their Slack" : "Slack"} (about ${estimateMinutes(buf.length, audio.mimetype ?? "")} min). Transcribing; the task lines follow in a few minutes.`, { threadKey: messageThreadKey(stored.id) });
         return;
       } else transcriptNote = "error" in t ? t.error : "unknown";
@@ -179,7 +179,7 @@ async function handleInteraction(payload: { type: string; team?: { id: string };
         if (!messageId || !clientId) break;
         const c = (await allClients()).find((x) => x.id === clientId);
         await sql()`update messages set client_id = ${clientId}, scope = ${c?.scope ?? "client"}, skip_reason = null where id = ${messageId}`;
-        await sql()`insert into queue (kind, payload) values ('process_message', ${JSON.stringify({ messageId })}::jsonb)`;
+        await enqueue("process_message", { messageId });
         await finish(`👤 Client set to *${c?.name ?? clientId}* by ${who}; processing on the next tick.`);
         break;
       }

@@ -4,7 +4,7 @@
  * the queue job as the fallback. The stored row is updated in place (never deleted), so a run that dies leaves the
  * message for the watchdog rather than losing it.
  */
-import { sql } from "./db";
+import { enqueue, sql } from "./db";
 import { processMessage } from "./pipeline";
 import { postAck, humanOutcome, askWhichClient } from "./review";
 import { sendText } from "./gchat";
@@ -37,6 +37,6 @@ export async function reprocessMessage(messageId: string): Promise<void> {
 export function reprocessSoon(messageId: string, waitUntil: (p: Promise<unknown>) => void): void {
   waitUntil(reprocessMessage(messageId).catch(async (e) => {
     console.error("reprocess failed, queued", (e as Error).message);
-    await sql()`insert into queue (kind, payload, next_run_at) values ('process_message', ${JSON.stringify({ messageId })}::jsonb, now())`;
+    await enqueue("process_message", { messageId });
   }));
 }

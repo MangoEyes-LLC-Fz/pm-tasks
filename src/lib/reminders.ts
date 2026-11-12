@@ -1,4 +1,5 @@
 import { sql } from "./db";
+import { idleOn, mustQuery, nextReminderInstant, pokeReminder, rememberReminders, reminderGate } from "./idle";
 import * as gchat from "./gchat";
 import { rememberThread, postText, sourceLabel } from "./review";
 import { parseWhen, daysFromNow, whenLabel, isMorningMinute } from "./when";
@@ -59,6 +60,9 @@ export async function postReminder(id: string, repeat: boolean): Promise<void> {
  */
 export async function postDueReminders(now = new Date()): Promise<{ posted: number; errors: string[] }> {
   const out = { posted: 0, errors: [] as string[] };
+  const gate = await reminderGate();
+  if (gate.shared && !mustQuery(gate.value, now)) return out;
+  const started = now.toISOString();
   const morning = isMorningMinute(now);
   const due = await sql()`select id, last_posted_at from reminders where done_at is null and due_at <= ${now.toISOString()}
     and (last_posted_at is null or (${morning} and last_posted_at < now() - interval '20 hours')) order by due_at limit 30`;
@@ -66,11 +70,16 @@ export async function postDueReminders(now = new Date()): Promise<{ posted: numb
     try { await postReminder(String(r.id), !!r.last_posted_at); out.posted++; }
     catch (e) { out.errors.push(`reminder ${String(r.id).slice(0, 8)}: ${(e as Error).message.slice(0, 120)}`); }
   }
+  if (await idleOn()) {
+    const open = await sql()`select due_at, last_posted_at from reminders where done_at is null`;
+    await rememberReminders(nextReminderInstant(open.map((r) => ({ dueAt: String(r.due_at), lastPostedAt: r.last_posted_at ? String(r.last_posted_at) : null }))), started);
+  }
   return out;
 }
 
 export async function markReminderDone(id: string, who: string): Promise<string> {
   const r = await sql()`update reminders set done_at = now(), done_by = ${who} where id = ${id} and done_at is null returning text`;
+  await pokeReminder(new Date());
   return r.length ? `✅ Done · ${who} · ${whenLabel(new Date(), true)} · ${String(r[0].text)}` : `Already marked done.`;
 }
 
@@ -79,6 +88,7 @@ export async function moveReminder(id: string, words: string, who: string): Prom
   const when = parseWhen(words);
   if (!when) return null;
   await sql()`update reminders set due_at = ${when.toISOString()}, last_posted_at = null where id = ${id} and done_at is null`;
+  await pokeReminder(when);
   return `⏰ Moved to ${whenLabel(when, true)} · by ${who}`;
 }
 

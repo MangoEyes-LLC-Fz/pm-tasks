@@ -1,4 +1,5 @@
 import { sql, allClients, channelPaused, enqueue } from "./db";
+import { pokeExpire, pokeWatchdog } from "./idle";
 import { noise } from "./config";
 import { pulp } from "./pulp";
 import { dedupe, textHash } from "./dedupe";
@@ -10,7 +11,7 @@ import { postThreadFollowupComment } from "./slack";
 import { postReview, postText, postFeed, wordsLine, reviewMode, followupLine, feedHeadline, followupHeadline, messageThreadKey, suggestedClientOf, feedThreadKeyOf, inSharedThread, sourceLabel, senderUserOf, DEPT, threadUrl, type WaitingOn } from "./review";
 import { postProposal } from "./proposal";
 import { reminderFromMessage, senderName } from "./reminders";
-import { whenLabel } from "./when";
+import { whenLabel, workingDaysFrom } from "./when";
 import type { AskKindT } from "./llm/extract";
 import type { Draft, RouteDecision, Priority } from "./types";
 
@@ -82,6 +83,7 @@ export async function processMessage(m: Message, noiseVerdict: { skip: boolean; 
       returning id`;
   if (!stored.length) return { messageId: "", outcome: "skipped", reason: "already_seen" };
   const messageId = stored[0].id as string;
+  if (!noiseVerdict.skip) await pokeWatchdog(new Date(Date.now() + 3 * 60_000));
   try { return await processStored(m, messageId, hash, noiseVerdict, opts); }
   catch (e) {
     // A run that dies (model call, Pulp, a bug) leaves its reason on the message: hub_status shows it under
@@ -317,6 +319,7 @@ async function processStored(m: Message, messageId: string, hash: string, noiseV
     }
 
     proposals.push({ requestId, draft: { title: cl.title, description: cl.description, labels: r.labels }, route: r, owner: a.owner, quote: a.quote });
+    await pokeExpire(new Date(workingDaysFrom(new Date(), 5).getTime() + 60_000));
   }
 
   const threadKey = inSharedThread(m) ? feedThreadKeyOf(m, messageId) : messageThreadKey(messageId);
