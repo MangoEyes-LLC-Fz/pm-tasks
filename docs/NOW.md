@@ -54,11 +54,14 @@ hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
 
-- The card match (3.12): `hub_status.cardMatch.catchUp.state` should read `done` within about an hour of the deploy;
-  `cardMatch.spend30d` should be cents and name `claude-haiku-5-5`. If it names the hub's own model, the API would not
-  serve the cheap one for this account: the match still works, at about ten times the price, and Arun should know.
-  The first hand-made card for a client with an ask waiting should turn that ask's proposal card into the "already has
-  a card in Pulp" line, or a question, within about six minutes. A quiet hour must still show the compute suspended.
+- The card match (3.12). The catch-up is proven: it finished 17 minutes after the deploy (18:41 to 18:58 UTC), read 701
+  asks in 76 calls for $0.04 on `claude-haiku-5-5`, tied 32 asks to their hand-made cards (12 that were still waiting,
+  20 that had expired) and marked 9 waiting asks "a card may already exist". All 32 pairs were read by hand in
+  `hub_status.cardMatch.catchUp.pairs` and look right; one is soft (an expired "weekly SEO report for Dr Tanov" tied
+  to the Week 45 update card). No queue errors. Still to see on real traffic: the first hand-made card for a client
+  with an ask waiting turning that ask's proposal card into the "already has a card in Pulp" line, or a question,
+  within about six minutes; the 13 Nov 10:00 post shorter by the 12 closed asks, with the 9 marked items carrying a
+  card link; a quiet hour still showing the compute suspended.
 - After this deploys, a quiet hour (no mail, no Drop message, no Slack event, no reminder due) should show the Neon
   compute suspended, not 0.25 CU. The tick log should say `idleCache: "on"`. `/api/health` should be `ok: true` with
   `db.touched: false`.
