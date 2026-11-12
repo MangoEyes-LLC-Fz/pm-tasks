@@ -4,6 +4,7 @@ import { clientFromKnownEmail } from "./slack";
 import { emailNoise, splitQuotedHistory } from "./filter/noise";
 import { noise as noiseConfig } from "./config";
 import { allClients, enqueue, sql } from "./db";
+import { idleOn, noteBeat } from "./idle";
 import { processMessage } from "./pipeline";
 import { postAck, humanOutcome } from "./review";
 import { transcribeAudio, isAudio, sniffAudio, startLongTranscription, hintPhrases } from "./transcribe";
@@ -264,7 +265,7 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
     const stored = await sql()`insert into messages (channel, external_id, client_id, scope, sender, sender_is_staff, sent_at, text, text_hash, permalink, thread_ref, raw, skip_reason)
       values ('email', ${m.externalId}, ${m.clientId}, ${m.scope}, ${m.sender}, ${m.senderIsStaff}, ${m.sentAt.toISOString()}, ${m.text}, ${m.externalId}, ${m.permalink}, ${m.threadRef}, ${JSON.stringify(m.raw)}::jsonb, 'transcribing')
       on conflict (channel, external_id) do nothing returning id`;
-    if (stored.length) await sql()`insert into queue (kind, payload, next_run_at) values ('transcribe_poll', ${JSON.stringify({ messageId: stored[0].id, job: longJob, typed: m.text })}::jsonb, now() + interval '60 seconds')`;
+    if (stored.length) await enqueue("transcribe_poll", { messageId: stored[0].id, job: longJob, typed: m.text }, 60);
     return `${subjectClean.slice(0, 40)} → long voice note, transcribing`;
   }
   const result = await processMessage(m, verdict);
@@ -299,12 +300,24 @@ async function requeueDroppedIntakeMails(): Promise<number> {
   return hits.length;
 }
 
-/** One poll: read new mails, process each, label it. Errors are per mail so one bad mail never blocks the rest. */
-export async function pollMailbox(): Promise<{ read: number; outcomes: string[]; errors: string[] }> {
+/**
+ * One poll: read new mails, process each, label it. Errors are per mail so one bad mail never blocks the rest.
+ * `requeue` is the once-a-day self-heal. An empty mailbox does not open Postgres: Gmail's own label is the cursor.
+ */
+export async function pollMailbox(opts: { requeue?: boolean } = {}): Promise<{ read: number; outcomes: string[]; errors: string[] }> {
   const outcomes: string[] = [], errors: string[] = [];
   let mails: gmail_v1.Schema$Message[] = [];
-  try { const n = await requeueDroppedIntakeMails(); if (n) outcomes.push(`${n} mail(s) to ${intakeAddress()} re-run (dropped earlier as staff outgoing or as a group copy read as bulk)`); } catch (e) { errors.push(`requeue: ${(e as Error).message.slice(0, 120)}`); }
-  try { mails = await fetchNewMails(); } catch (e) { return { read: 0, outcomes, errors: [(e as Error).message.slice(0, 200)] }; }
+  if (opts.requeue) {
+    try { const n = await requeueDroppedIntakeMails(); if (n) outcomes.push(`${n} mail(s) to ${intakeAddress()} re-run (dropped earlier as staff outgoing or as a group copy read as bulk)`); } catch (e) { errors.push(`requeue: ${(e as Error).message.slice(0, 120)}`); }
+  }
+  try { mails = await fetchNewMails(); } catch (e) {
+    const failed = { read: 0, outcomes, errors: [(e as Error).message.slice(0, 200)] };
+    await noteBeat("gmail", failed);
+    if (!(await idleOn())) {
+      try { await sql()`insert into settings (key, value) values ('gmail_poll_last', ${JSON.stringify({ at: new Date().toISOString(), ...failed })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
+    }
+    return failed;
+  }
   for (const raw of mails) {
     try {
       outcomes.push(await ingestMail(raw));
@@ -312,8 +325,12 @@ export async function pollMailbox(): Promise<{ read: number; outcomes: string[];
     try { await markProcessed(raw.id!); } catch (e) { errors.push(`label ${raw.id}: ${(e as Error).message.slice(0, 120)}`); }
   }
   const report = { read: mails.length, outcomes, errors };
-  try {
-    await sql()`insert into settings (key, value) values ('gmail_poll_last', ${JSON.stringify({ at: new Date().toISOString(), ...report })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
-  } catch { /* ignore */ }
+  const quiet = report.read === 0 && outcomes.length === 0 && errors.length === 0;
+  if (!quiet || !(await idleOn())) {
+    try {
+      await sql()`insert into settings (key, value) values ('gmail_poll_last', ${JSON.stringify({ at: new Date().toISOString(), ...report })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+    } catch { /* ignore */ }
+  }
+  await noteBeat("gmail", { ...report, errors });
   return report;
 }

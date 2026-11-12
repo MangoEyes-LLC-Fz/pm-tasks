@@ -4,7 +4,7 @@
  * client name from the text / the thread / a name given just before, voice notes transcribed, the sender is answered in
  * the message's own thread only when they must act or nothing was created; the feed carries the finals.
  */
-import { allClients, sql } from "./db";
+import { allClients, enqueue, sql } from "./db";
 import { processMessage, storeSkipped } from "./pipeline";
 import { resolveClientFromText, fuzzyClientFromText, stripClientPrefix, isNameOnly } from "./resolve";
 import { postText, humanOutcome, closeNeedsHumanCard, messageThreadKey, askWhichClient, suggestedClientOf } from "./review";
@@ -84,7 +84,7 @@ export async function handleIntakeMessage(msg: ChatMessage, raw: unknown, space:
         try {
           const job = await startLongTranscription(buf, a.contentType ?? "", a.contentName ?? "", undefined, hints);
           const stored = await storeOnly({ ...baseMessage(msg, raw, sender, text, clients), text }, "transcribing");
-          await sql()`insert into queue (kind, payload, next_run_at) values ('transcribe_poll', ${JSON.stringify({ messageId: stored.id, job, typed: text })}::jsonb, now() + interval '60 seconds')`;
+          await enqueue("transcribe_poll", { messageId: stored.id, job, typed: text }, 60);
           await postText(`🎙️ Voice note from ${sender} received (about ${mins} min). Transcribing; the task lines will follow in a few minutes.`, { threadKey: messageThreadKey(stored.id) });
           await say(`🎙️ Long voice note (about ${mins} min): transcribing, the result follows in the feed in a few minutes.`);
           return;

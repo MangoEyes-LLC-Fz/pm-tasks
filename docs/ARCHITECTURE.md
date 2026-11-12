@@ -21,7 +21,7 @@ from Claude. The team never types tasks by hand and nothing that comes in can le
 | Piece | What | Where / ID |
 |---|---|---|
 | Application | Next.js 16 (App Router, TypeScript), Node runtime. One deployment serves every endpoint. | Vercel project `pm-tasks`, https://pm-tasks.vercel.app, branch `claude/mangowise-task-automation-3qnd3k` (every push deploys in about 2 minutes) |
-| Database | Postgres (Neon, paid plan; the minute-by-minute polling keeps it awake, so compute size is the cost lever). Fifteen tables (section 4). Kept forever. | env `storage_DATABASE_URL` |
+| Database | Postgres (Neon, Launch plan, scale to zero). Fifteen tables (section 4). Kept forever. The driver is `@neondatabase/serverless` over HTTP, so a query does not hold a connection open. A quiet minute does not query at all (`src/lib/idle.ts`): the crons still run, and Neon suspends about five minutes after the last real read or write. | env `storage_DATABASE_URL` (pooled host preferred) |
 | Schedules | Vercel Cron. `/api/tick` every minute (with a budget: queue stops at 50 s, Pulp poll at 95 s; Pulp cards fetched ten at a time, open hub cards every minute, hand-made cards in rotation, so the function lives a few seconds, not the whole minute); `/api/inbox-tick` every minute (three reads inside it, at 0/20/40 s); `/api/meet-tick` every 5 minutes (meetings in their own budget, two per run, trace before every slow step); `/api/eod` at 04:30 UTC Monday to Friday (10:00 India: the Today post, and Monday's ideas; the minute loop runs it itself from 10:05 India if the cron did not). All authenticated with `CRON_SECRET` as a bearer token. | `vercel.json` |
 | Model | Claude (Anthropic API), `claude-sonnet-5` by default, structured JSON output, prompt caching on the instructions (1 hour). Two calls per message: extract, then classify per ask; one call per meeting. Every call logged with tokens and cost in `llm_calls`. | env `ANTHROPIC_API_KEY`, `LLM_MODEL` |
 | Google Cloud project | `mangoeyes-task-hub` (number `354018118635`). APIs on: Chat, Sheets, Drive, Gmail, Speech-to-Text, Cloud Storage. | env `GOOGLE_PROJECT_NUMBER` |
@@ -105,7 +105,12 @@ Every minute, in order: refresh the client map from the Config tab → (every 10
 cards, sheet rows for hand-made cards at To Do or later with a client label) → poll the mailbox → run due queue jobs
 (until 50 s) → poll every hub card in Pulp by id (until 95 s; a card that is closed, deleted or in a Staging list is
 archived for the hub) → check up to 40 hand-made cards in rotation → post reminders due → (from 10:05 India) run the
-morning post if the cron did not → (every 10 min) watchdog and proposal expiry → heartbeat `tick_last`.
+morning post if the cron did not → watchdog and proposal expiry when something is outstanding → heartbeat.
+
+From 2026-11-12 the heartbeat and the "nothing changed" answers live in the Vercel Runtime Cache, not in Postgres.
+Gmail, Chat, Drive, Pulp and the sheet are still asked on the same schedules. Postgres is opened when a row changed,
+a queued job or a reminder is due, the morning post is due, or six hours have passed since an empty queue was
+confirmed. `/api/health` (the uptime monitor) reads the cache. `/api/health?deep=1` reads the database.
 
 `/api/meet-tick`, every 5 minutes, reads new Meet notes: at most two meetings per run, a second only with most of the
 budget left, a trace written before every slow step, a doc set aside after three cut-short attempts.

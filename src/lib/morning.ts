@@ -1,4 +1,5 @@
 import { sql } from "./db";
+import { morningCached, rememberMorning } from "./idle";
 import { postFeed } from "./review";
 import { collectBrief, renderBrief } from "./brief";
 import { postMondayIdeas } from "./ideas";
@@ -17,6 +18,13 @@ const IDEAS_KEY = "ideas_last";
 export const CATCH_UP_MINUTE = 10 * 60 + 5;
 
 export const teamDay = (now: Date): string => { const p = teamParts(now); return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`; };
+
+/** Pure: is it even the part of the week when a missed 10:00 post could still be outstanding? Nights and weekends are not. */
+export function morningCouldBeDue(now: Date): boolean {
+  const p = teamParts(now);
+  if (p.weekday === 0 || p.weekday === 6) return false;
+  return p.hour * 60 + p.minute >= CATCH_UP_MINUTE;
+}
 
 /** Pure: should the minute loop run the morning post now? Weekday, 10:05 India or later, no run recorded for today. */
 export function morningDue(now: Date, lastAt: string | null): boolean {
@@ -82,12 +90,18 @@ export async function runMorning(now = new Date(), opts: { by: string; forceIdea
   try {
     await sql()`insert into settings (key, value) values (${MORNING_KEY}, ${JSON.stringify(report)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
   } catch { /* ignore */ }
+  await rememberMorning(report.at);
   return report;
 }
 
-/** For the minute loop: run the morning post when the cron has not, once per weekday. */
+/** For the minute loop: run the morning post when the cron has not, once per weekday. Nights and weekends do not open the database to check. */
 export async function catchUpMorning(now = new Date()): Promise<MorningReport | null> {
+  if (!morningCouldBeDue(now)) return null;
+  const cached = await morningCached();
+  if (cached.shared && !morningDue(now, cached.at)) return null;
   const r = await sql()`select value->>'at' as at from settings where key = ${MORNING_KEY}`;
-  if (!morningDue(now, r.length ? (r[0].at as string | null) : null)) return null;
+  const at = r.length ? (r[0].at as string | null) : null;
+  await rememberMorning(at);
+  if (!morningDue(now, at)) return null;
   return runMorning(now, { by: "tick catch-up" });
 }

@@ -5,6 +5,7 @@
  * (The MCP `daily_summary` tool keeps its fuller text in hub.ts.)
  */
 import { sql } from "./db";
+import { allBeats, overlayPolls } from "./idle";
 import { pulp } from "./pulp";
 import { mention } from "./reminders-util";
 import { whenLabel } from "./when";
@@ -102,7 +103,7 @@ export async function collectBrief(now = new Date()): Promise<BriefData> {
     issues.push(`${r.skip_reason === "transcription_failed" ? "Voice note could not be transcribed" : "Message could not be processed"}: ${r.client} · "${r.text}"`);
   for (const r of await sql()`select kind, left(coalesce(last_error,''), 80) as err from queue where last_error like 'abandoned:%' and done_at > now() - interval '1 day' limit 5`)
     issues.push(`Background step gave up: ${r.kind} · ${String(r.err).replace(/^abandoned:\s*/, "")}`);
-  const polls = await sql()`select key, value from settings where key in ('gmail_poll_last','chat_inbox_last','meet_poll_last','pulp_poll_last','sheet_cards_last','board_mirror_last','tick_last')`;
+  const polls = overlayPolls(await sql()`select key, value from settings where key in ('gmail_poll_last','chat_inbox_last','meet_poll_last','pulp_poll_last','sheet_cards_last','board_mirror_last','tick_last')`, await allBeats());
   const names: Record<string, string> = { gmail_poll_last: "Mailbox", chat_inbox_last: "Task Hub Drop", meet_poll_last: "Meet notes", pulp_poll_last: "Pulp", sheet_cards_last: "Sheet cards", board_mirror_last: "Boards" };
   const limitMin: Record<string, number> = { gmail_poll_last: 5, chat_inbox_last: 5, meet_poll_last: 20, pulp_poll_last: 5, sheet_cards_last: 5, board_mirror_last: 20 };
   for (const key of Object.keys(names)) if (!polls.some((p) => p.key === key)) issues.push(`${names[key]} has never run`);

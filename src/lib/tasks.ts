@@ -1,4 +1,5 @@
 import { sql, enqueue } from "./db";
+import { dropWatch, markBoardsDirty } from "./idle";
 import { pulp } from "./pulp";
 import { boards as boardsConfig } from "./config";
 import { insertTaskRow, sheetsConfigured, findClientTab } from "./sheets";
@@ -113,6 +114,8 @@ export async function createStagingCard(p: { requestId: string; client: Client |
     values (${p.requestId}, ${p.client?.id ?? null}, ${pulpCardId}, ${boardId}, ${listId}, ${p.draft.title}, ${p.route.priority},
             ${p.route.assignee}, ${p.route.dueAt?.toISOString() ?? null}, true)
     returning id`;
+  await dropWatch("pulp");
+  await markBoardsDirty();
   return { id: ins[0].id as string, pulpCardId, boardId };
 }
 
@@ -173,6 +176,8 @@ export async function createFromProposal(p: { requestId: string; department: str
     proposal = coalesce(proposal, '{}'::jsonb) || ${JSON.stringify({ assignee: p.assignee, dueAt: p.dueAt?.toISOString() ?? null, department: p.department, priority: p.priority })}::jsonb where id = ${p.requestId}`;
   await sql()`insert into status_events (task_id, from_list, to_list, source) values (${taskId}, null, ${listId ?? listName}, 'hub')`;
   await writeSheetRow(taskId, p.who);
+  await dropWatch("pulp");
+  await markBoardsDirty();
   return { taskId, cardId, link: cardId && boardId ? pulp.cardUrl(boardId, cardId) : "" };
 }
 
@@ -199,6 +204,8 @@ export async function createCardForTask(taskId: string): Promise<boolean> {
     assignee: (x.assignee as string | null) ?? null, dueAt: x.due_at ? new Date(x.due_at as string) : null,
   });
   await sql()`update tasks set pulp_card_id = ${card.id}, board_id = ${boardId}, list_id = ${listId}, staging = true where id = ${taskId}`;
+  await dropWatch("pulp");
+  await markBoardsDirty();
   return true;
 }
 

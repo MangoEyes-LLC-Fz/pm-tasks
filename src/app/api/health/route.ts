@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql, databaseUrl } from "@/lib/db";
+import { allBeats, idleOn, overlayPolls, POLL_KEYS, queueErrorsCached, READER_LIMITS, staleReaders, type BeatName } from "@/lib/idle";
 import { pulp } from "@/lib/pulp";
 import { sheetsConfigured } from "@/lib/sheets";
 import { env } from "@/lib/config";
@@ -10,12 +11,39 @@ import { reviewMode } from "@/lib/review";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const deep = new URL(req.url).searchParams.get("deep") === "1";
   const out: Record<string, unknown> = { model: env.model(), reviewMode: reviewMode(), gchat: gchatConfigured(), gmail: gmailConfigured(), gmailMailbox: process.env.GMAIL_MAILBOX ?? null, pulp: pulp.configured(), sheets: sheetsConfigured(), slackAppConfigured: !!process.env.SLACK_SIGNING_SECRET && !!process.env.SLACK_CLIENT_ID && !!process.env.SLACK_CLIENT_SECRET, intakePaused: env.intakePaused(), cronSecretSet: !!process.env.CRON_SECRET, cronSecretHint: process.env.CRON_SECRET ? `${process.env.CRON_SECRET.trim().slice(0,4)}…(${process.env.CRON_SECRET.trim().length})` : null, dbUrlSet: !!databaseUrl(), anthropicKeySet: !!process.env.ANTHROPIC_API_KEY };
+  // The uptime monitor hits this URL with no query. On Vercel that answer comes from the runtime cache, not Postgres,
+  // so a ping every minute cannot keep Neon awake. `?deep=1` is the full database view.
+  if (!deep && await idleOn()) {
+    const beats = await allBeats();
+    const tick = beats.tick;
+    const tickLast = tick?.at ?? null;
+    const tickAgeSeconds = tickLast ? Math.round((Date.now() - Date.parse(tickLast)) / 1000) : null;
+    const stale = staleReaders(beats, new Date());
+    const polls = overlayPolls([], beats);
+    const value = (name: BeatName) => polls.find((p) => p.key === POLL_KEYS[name])?.value ?? null;
+    out.tickLast = tickLast;
+    out.tickAgeSeconds = tickAgeSeconds;
+    out.stale = stale;
+    out.ok = !!tickLast && (tickAgeSeconds as number) < 300 && stale.length === 0;
+    out.chatInboxLast = value("inbox");
+    out.gmailPollLast = value("gmail");
+    out.pulpPollLast = value("pulp");
+    out.sheetSyncLast = value("sheet_sync");
+    out.meetPollLast = value("meet");
+    out.sheetCardsLast = value("sheet_cards");
+    out.boardMirrorLast = value("board_mirror");
+    out.queueErrors = (await queueErrorsCached()) ?? [];
+    out.db = { ok: true, touched: false };
+    out.readerLimitsSeconds = Object.fromEntries(READER_LIMITS.map(([name, limit]) => [name, limit]));
+    return NextResponse.json(out, { status: out.ok === false ? 503 : 200 });
+  }
   try {
     const r = await sql()`select (select count(*) from clients)::int as clients, (select count(*) from slack_workspaces)::int as workspaces, (select team_name from slack_workspaces where is_home limit 1) as home`;
     out.db = { ok: true, clients: r[0].clients, slackWorkspaces: r[0].workspaces, homeWorkspace: r[0].home };
-    const last = await sql()`select key, value from settings where key in ('gchat_last_event', 'slack_last_event', 'pulp_poll_last', 'gmail_poll_last', 'sheet_sync_last', 'meet_poll_last', 'sheet_cards_last', 'voice_last', 'tick_last', 'chat_inbox_last', 'board_mirror_last', 'eod_last')`;
+    const last = overlayPolls(await sql()`select key, value from settings where key in ('gchat_last_event', 'slack_last_event', 'pulp_poll_last', 'gmail_poll_last', 'sheet_sync_last', 'meet_poll_last', 'sheet_cards_last', 'voice_last', 'tick_last', 'chat_inbox_last', 'board_mirror_last', 'eod_last')`, await allBeats());
     out.chatInboxLast = last.find((x) => x.key === "chat_inbox_last")?.value ?? null;
     const tickLast = last.find((x) => x.key === "tick_last")?.value as string | undefined;
     out.tickLast = tickLast ?? null;

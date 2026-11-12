@@ -1,4 +1,5 @@
 import { sql, allClients } from "./db";
+import { boardCardsFingerprint, boardMemory, idleOn, mirrorDue, noteBeat, writeBoards } from "./idle";
 import { pulp, isDoneList, normList, type BoardCard } from "./pulp";
 import { boards as boardsConfig } from "./config";
 import { resolveClientFromText } from "./resolve";
@@ -83,6 +84,8 @@ async function mirroredBoards(): Promise<Array<{ id: string; department: string 
 }
 
 export async function shouldMirror(now = new Date()): Promise<boolean> {
+  const cached = await boardMemory();
+  if (cached.shared) return mirrorDue(now, cached.value, MIRROR_EVERY_MIN);
   const r = await sql()`select value->>'at' as at from settings where key = 'board_mirror_last'`;
   const at = r.length && r[0].at ? new Date(String(r[0].at)).getTime() : 0;
   return now.getTime() - at >= MIRROR_EVERY_MIN * 60_000 - 5_000;
@@ -92,6 +95,29 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
   const started = Date.now();
   const report: MirrorReport = { at: new Date().toISOString(), boards: [], errors: [], sample: null, seconds: 0 };
   if (!pulp.configured()) return report;
+  const remembered = await boardMemory();
+  if (remembered.shared && remembered.value && !remembered.value.dirty && Object.keys(remembered.value.fps).length) {
+    const shots: Array<{ id: string; name: string; department: string; cards: number; capped: boolean; paging: string | null; fp: string }> = [];
+    const namesEarly = new Map((await pulp.boards()).map((b) => [b.id, b.name]));
+    let same = true;
+    for (const b of await mirroredBoards()) {
+      if (outOfTime()) { same = false; break; }
+      const read = await pulp.boardCards(b.id);
+      const fp = boardCardsFingerprint(read.cards, read.capped);
+      shots.push({ id: b.id, name: namesEarly.get(b.id) ?? b.id, department: b.department, cards: read.cards.length, capped: read.capped, paging: read.paging, fp });
+      if (remembered.value.fps[b.id] !== fp) same = false;
+    }
+    const fps = remembered.value.fps;
+    if (same && shots.length && shots.every((s) => fps[s.id] === s.fp) && Object.keys(fps).length === shots.length) {
+      const at = new Date().toISOString();
+      await writeBoards({ ...remembered.value, at, dirty: false });
+      const unchanged = { at, boards: shots.map((s) => ({ board: s.id, name: s.name, department: s.department, cards: s.cards, capped: s.capped, paging: s.paging, new: 0, updated: 0, archived: 0, rows: 0, waitingLabel: 0 })), errors: [] as string[], unchanged: true };
+      await noteBeat("board_mirror", unchanged);
+      report.boards = unchanged.boards;
+      return report;
+    }
+  }
+  if (await idleOn()) await writeBoards({ at: new Date().toISOString(), fps: remembered.value?.fps ?? {}, dirty: true });
   // Marked as started before any read: a run cut short by the function's time limit must not repeat every minute.
   // (First live run, 2026-09-23: one insert per card, hundreds of cards, ran past the minute and starved the tick.)
   try {
@@ -99,10 +125,12 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
   } catch { /* ignore */ }
   const clients = await allClients();
   const names = new Map((await pulp.boards()).map((b) => [b.id, b.name]));
+  const nextFps: Record<string, string> = {};
   for (const b of await mirroredBoards()) {
     if (outOfTime()) { report.errors.push(`stopped before ${names.get(b.id) ?? b.id}: out of time`); break; }
     try {
       const { cards, sample, capped, paging } = await pulp.boardCards(b.id);
+      nextFps[b.id] = boardCardsFingerprint(cards, capped);
       if (!report.sample) report.sample = sample;
       const boardLists = await pulp.listsOnBoard(b.id);
       const lists = new Map(boardLists.map((l) => [l.id, l.name]));
@@ -178,5 +206,9 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
   try {
     await sql()`insert into settings (key, value) values ('board_mirror_last', ${JSON.stringify(report)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
   } catch { /* ignore */ }
+  await noteBeat("board_mirror", { ...report });
+  if (await idleOn() && !report.errors.length && Object.keys(nextFps).length) {
+    await writeBoards({ at: report.at, fps: nextFps, dirty: false });
+  }
   return report;
 }

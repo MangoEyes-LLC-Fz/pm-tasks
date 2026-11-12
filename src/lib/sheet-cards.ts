@@ -1,4 +1,5 @@
 import { sql } from "./db";
+import { dueSheetCards, idleOn, noteBeat, saveSheetWatch, sheetWatch, watchStale, WATCH_MAX, type SheetWatchCard } from "./idle";
 import { pulp, isDoneList, normList } from "./pulp";
 import { sheetsConfigured, sheetConfig, tabHeaders, tabRows, mapHeaders, updateTaskCells, moveRowBelowDivider } from "./sheets";
 import { isUntitled } from "./sheet-sync";
@@ -61,7 +62,62 @@ export async function* fetchCards<R>(rows: R[], outOfTime: () => boolean = () =>
   }
 }
 
+async function reloadSheetWatch(): Promise<void> {
+  if (!(await idleOn())) return;
+  const rows = await sql()`
+    select id, pulp_card_id, board_id, list_id, title, sheet_tab, sheet_row, sheet_status, pulp_checked_at
+    from tasks where origin = 'sheet' and pulp_card_id is not null and sheet_tab is not null and completed_at is null and notes is distinct from 'Archived or deleted in Pulp'`;
+  if (rows.length > WATCH_MAX) return;
+  const cards: SheetWatchCard[] = rows.map((t) => ({
+    id: String(t.id), cardId: String(t.pulp_card_id), boardId: String(t.board_id ?? ""), listId: (t.list_id as string | null) ?? null,
+    title: String(t.title ?? ""), sheetTab: String(t.sheet_tab), sheetRow: t.sheet_row == null ? null : Number(t.sheet_row),
+    sheetStatus: (t.sheet_status as string | null) ?? null,
+    checkedAt: t.pulp_checked_at ? new Date(String(t.pulp_checked_at)).toISOString() : null,
+  }));
+  await saveSheetWatch({ loadedAt: new Date().toISOString(), cards });
+}
+
+/** Pulp is still checked on the same two-minute rotation. Postgres is opened only when a card has moved or the cache is cold. */
+async function tryQuietSheetCards(limit: number, outOfTime: () => boolean): Promise<SheetCardsReport | null> {
+  if (!(await idleOn())) return null;
+  const watch = await sheetWatch();
+  const now = new Date();
+  if (!watch?.cards || watchStale(watch.loadedAt, now)) return null;
+  const due = dueSheetCards(watch.cards, now, limit);
+  if (!due.length) {
+    await noteBeat("sheet_cards", { checked: 0, baselined: 0, written: 0, closed: 0, titled: 0, errors: [], skipped: "nothing due" });
+    return { checked: 0, baselined: 0, written: 0, closed: 0, titled: 0, errors: [] };
+  }
+  const report: SheetCardsReport = { checked: 0, baselined: 0, written: 0, closed: 0, titled: 0, errors: [] };
+  const seen = new Set<string>();
+  for await (const { row, card, error } of fetchCards(due.map((c) => ({ ...c, pulp_card_id: c.cardId })), outOfTime)) {
+    if (error === "timeout") { report.errors.push(`stopped after ${report.checked} cards: out of time this minute`); break; }
+    if (!card || error) return null;
+    if (await pulp.cardArchived(card)) return null;
+    const listName = card.listName ?? "";
+    if (!listName) return null;
+    const done = isDoneList(listName);
+    const wanted = done ? sheetConfig().stage_values.done : listName;
+    if (sheetCardAction({ lastListId: row.listId, cardListId: card.listId, done, sheetStatus: row.sheetStatus, wanted }) !== "skip") return null;
+    seen.add(row.id);
+    report.checked++;
+  }
+  const at = now.toISOString();
+  for (const c of watch.cards) if (seen.has(c.id)) c.checkedAt = at;
+  await saveSheetWatch(watch);
+  await noteBeat("sheet_cards", { ...report, skipped: "unchanged" });
+  return report;
+}
+
 export async function pollSheetCards(limit = 60, outOfTime: () => boolean = () => false): Promise<SheetCardsReport> {
+  const quiet = await tryQuietSheetCards(limit, outOfTime);
+  if (quiet) return quiet;
+  const report = await pollSheetCardsFromDb(limit, outOfTime);
+  try { await reloadSheetWatch(); } catch { /* the next minute loads it */ }
+  return report;
+}
+
+async function pollSheetCardsFromDb(limit = 60, outOfTime: () => boolean = () => false): Promise<SheetCardsReport> {
   const report: SheetCardsReport = { checked: 0, baselined: 0, written: 0, closed: 0, titled: 0, errors: [] };
   if (!pulp.configured() || !sheetsConfigured()) return report;
   // Each card is looked at every two minutes (2026-09-18: was 40 a minute, one request at a time).
@@ -116,5 +172,6 @@ export async function pollSheetCards(limit = 60, outOfTime: () => boolean = () =
   try {
     await sql()`insert into settings (key, value) values ('sheet_cards_last', ${JSON.stringify({ at: new Date().toISOString(), ...report })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
   } catch { /* ignore */ }
+  await noteBeat("sheet_cards", { ...report });
   return report;
 }

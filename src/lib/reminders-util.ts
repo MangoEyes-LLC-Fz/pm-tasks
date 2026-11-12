@@ -1,5 +1,6 @@
 /** Small pieces shared by the proposal and reminder modules, kept apart so neither imports the other's Chat side. */
 import { sql } from "./db";
+import { pokeReminder } from "./idle";
 import { daysFromNow } from "./when";
 
 export const daysFromNowMorning = (now: Date, days: number) => daysFromNow(now, days);
@@ -9,6 +10,7 @@ export interface ReminderInput { messageId?: string | null; requestId?: string |
 export async function createReminder(r: ReminderInput): Promise<{ id: string; dueAt: Date }> {
   const rows = await sql()`insert into reminders (message_id, request_id, client_id, owner_name, owner_user, text, due_at, thread_key)
     values (${r.messageId ?? null}, ${r.requestId ?? null}, ${r.clientId ?? null}, ${r.ownerName}, ${r.ownerUser ?? null}, ${r.text}, ${r.dueAt.toISOString()}, ${r.threadKey ?? null}) returning id`;
+  await pokeReminder(r.dueAt);
   return { id: String(rows[0].id), dueAt: r.dueAt };
 }
 

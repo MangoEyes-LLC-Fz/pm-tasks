@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { cronAuthorized } from "@/lib/auth";
 import { sql, upsertClient, enqueue } from "@/lib/db";
+import { clearWatchdog, configFresh, dropWatch, expireMust, expireState, gmailDayDue, hashJson, idleOn, mustQuery, noteBeat, queueGate, rememberConfig, rememberExpire, rememberGmailDay, rememberQueue, saveQueueErrors, sheetDigestCached, rememberSheetDigest, watchdogMust, watchdogState } from "@/lib/idle";
+import { workingDaysFrom } from "@/lib/when";
+import { tryQuietPulp, reloadPulpWatch } from "@/lib/quiet-pulp";
 import { readConfigTab, sheetsConfigured } from "@/lib/sheets";
 import { pulp, isDoneList, normList } from "@/lib/pulp";
 
@@ -24,38 +27,69 @@ export async function GET(req: Request) {
   try { const { ensureSchema } = await import("@/lib/schema-apply"); const r = await ensureSchema(); if (r.applied) report.schema = r; }
   catch (e) { report.schema = { error: (e as Error).message }; }
 
-  // 1. Client map
+  // 1. Client map. The sheet is read every minute; Postgres is written only when a row changed.
+  let configClients: Awaited<ReturnType<typeof readConfigTab>>["clients"] | null = null;
   if (sheetsConfigured()) {
     try {
       const { clients, errors } = await readConfigTab();
-      for (const c of clients) await upsertClient(c);
-      report.clients = { upserted: clients.length, errors };
+      configClients = clients;
+      const hash = hashJson(clients);
+      if (await configFresh(hash)) report.clients = { upserted: 0, unchanged: true, errors };
+      else {
+        for (const c of clients) await upsertClient(c);
+        await rememberConfig(hash);
+        const { markBoardsDirty } = await import("@/lib/idle");
+        await markBoardsDirty();
+        report.clients = { upserted: clients.length, errors };
+      }
     } catch (e) { report.clients = { error: (e as Error).message }; }
   }
 
-  // 1a. Sheet → hub mirror every 10 minutes (history and hand-added rows), so the MCP hub answers from the PMs' record.
-  if (sheetsConfigured() && new Date().getMinutes() % 10 === 0) {
+  // 1a. Sheet → hub mirror every 10 minutes. The tabs are read from Google; the database is written only when a tab changed.
+  if (sheetsConfigured() && configClients && new Date().getMinutes() % 10 === 0) {
     try {
-      const { syncSheet } = await import("@/lib/sheet-sync");
-      const r = await syncSheet();
-      report.sheetSync = { tabs: Object.keys(r.tabs).length, imported: Object.values(r.tabs).reduce((a, t) => a + t.imported, 0), errors: r.errors };
+      const { syncSheet, clientTabsDigest } = await import("@/lib/sheet-sync");
+      const digest = await clientTabsDigest(configClients);
+      const prev = await sheetDigestCached();
+      if (prev.shared && prev.value === digest) {
+        report.sheetSync = { unchanged: true };
+        await noteBeat("sheet_sync", { at: new Date().toISOString(), unchanged: true, errors: [] });
+      } else {
+        const r = await syncSheet();
+        const summary = { tabs: Object.keys(r.tabs).length, imported: Object.values(r.tabs).reduce((a, t) => a + t.imported, 0), errors: r.errors };
+        report.sheetSync = summary;
+        if (!r.errors.length) { await rememberSheetDigest(digest); await dropWatch("sheet"); }
+        await noteBeat("sheet_sync", { at: new Date().toISOString(), ...summary });
+      }
     } catch (e) { report.sheetSync = { error: (e as Error).message }; }
   }
 
   // 1c. Meeting notes are read by /api/meet-tick (every 5 minutes, its own budget), not here.
 
-  // 1b. Mailbox
+  // 1b. Mailbox. An empty poll asks Gmail only. The retired-skip self-heal looks at the database once a day, in the 04:30 UTC hour.
   {
     const { gmailConfigured, pollMailbox } = await import("@/lib/gmail");
     if (gmailConfigured()) {
-      try { report.gmail = await pollMailbox(); } catch (e) { report.gmail = { error: (e as Error).message }; }
+      try {
+        const now = new Date();
+        const day = now.toISOString().slice(0, 10);
+        const requeue = now.getUTCHours() === 4 && now.getUTCMinutes() >= 30 && await gmailDayDue(day);
+        report.gmail = await pollMailbox({ requeue });
+        if (requeue) await rememberGmailDay(day);
+      } catch (e) { report.gmail = { error: (e as Error).message }; }
     }
   }
 
   // 1c. The Drop space is read by /api/inbox-tick (three times a minute), not here.
 
-  // 2. Queue
-  const due = await sql()`select id, kind, payload, attempts from queue where done_at is null and next_run_at <= now() order by next_run_at limit 20`;
+  // 2. Queue. Skipped until the earliest job is due, or until six hours after an empty read.
+  const now = new Date();
+  const qGate = await queueGate();
+  const queueStarted = now.toISOString();
+  const due = !qGate.shared || mustQuery(qGate.value, now)
+    ? await sql()`select id, kind, payload, attempts from queue where done_at is null and next_run_at <= now() order by next_run_at limit 20`
+    : [];
+  if (qGate.shared && !mustQuery(qGate.value, now)) report.queueSkipped = true;
   let ok = 0, failed = 0;
   for (const job of due) {
     // The minute has a budget: a job that is long (a meeting group, a transcription) leaves the rest for the next minute
@@ -72,7 +106,16 @@ export async function GET(req: Request) {
       await sql()`update queue set attempts = ${attempts}, last_error = ${(e as Error).message}, next_run_at = now() + (${backoff} || ' seconds')::interval where id = ${job.id}`;
     }
   }
-  report.queue = { ok, failed };
+  report.queue = { ok, failed, skipped: report.queueSkipped === true };
+  if (!report.queueSkipped) {
+    try {
+      const nxt = await sql()`select min(next_run_at) as at from queue where done_at is null`;
+      const at = nxt[0]?.at ? new Date(nxt[0].at as string | Date).toISOString() : null;
+      await rememberQueue(at, queueStarted);
+      const errs = await sql()`select kind, attempts, left(coalesce(last_error, ''), 160) as last_error from queue where done_at is null and last_error is not null order by next_run_at limit 3`;
+      await saveQueueErrors(errs);
+    } catch { /* the next minute reads the queue again */ }
+  }
 
   // 2b. Board mirror every five minutes: each department board read in one call, so every card on the boards is known
   //     to the hub (sheet row or not) with its list, labels, assignee and due date. Reads only. Decision 2026-09-23.
@@ -84,13 +127,16 @@ export async function GET(req: Request) {
   }
 
   // 3. Pulp poll: each hub card is fetched by id (GET /cards/{id}); the board-cards list is capped at 1000 and the
+  //    database is not opened when every card is still on the list the hub last saw.
   //    sprint boards are bigger than that. A card whose list differs from ours has been moved. The sheet is reconciled
   //    independently: the status the sheet last got (settings sheet_stage:<task>) is compared with the card's current
   //    list, so a failed write is retried and nothing is lost.
   //    Cost (2026-09-18): Vercel bills the function for every second it is alive, and fetching 80 cards one after
   //    another kept it alive most of the minute. Cards are fetched ten at a time, and only Staging cards every minute;
   //    a card already out of Staging is looked at every two minutes (its move is a status change, not an approval).
-  if (pulp.configured()) {
+  const quietPulp = await tryQuietPulp(() => elapsed() > 95_000);
+  if (quietPulp) report.pulp = quietPulp;
+  else if (pulp.configured()) {
     const errors: string[] = [];
     const seen: Array<Record<string, unknown>> = [];
     let synced = 0, sheetUpdates = 0, checked = 0;
@@ -176,6 +222,8 @@ export async function GET(req: Request) {
     try {
       await sql()`insert into settings (key, value) values ('pulp_poll_last', ${JSON.stringify({ at: new Date().toISOString(), checked, synced, sheetUpdates, tickSeconds: Math.round(elapsed() / 100) / 10, errors, tasks: seen.slice(0, 10) })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
     } catch { /* ignore */ }
+    await noteBeat("pulp", { checked, synced, sheetUpdates, errors });
+    try { await reloadPulpWatch(); } catch { /* the next change reloads it */ }
   }
 
   // 3a. Cards made by hand in Pulp and linked in the sheet by a PM: each looked at every two minutes, ten at a time,
@@ -210,16 +258,33 @@ export async function GET(req: Request) {
     } catch (e) { report.housekeeping = { error: (e as Error).message }; }
   }
 
-  // 5. Watchdog every 10 minutes: nothing stored may stay half-done, and nothing may fail quietly.
-  if (new Date().getMinutes() % 10 === 5) {
-    try { report.watchdog = await watchdog(); } catch (e) { report.watchdog = { error: (e as Error).message }; }
-    // Proposals nobody answered (5 working days, or made under the old rules) close here too, not only at 10:00,
-    // so a dead card never waits a day to leave the feed (Arun, 2026-09-30).
-    try { const { expireProposals } = await import("@/lib/morning"); report.expired = await expireProposals(); } catch (e) { report.expired = { error: (e as Error).message }; }
+  // 5. Watchdog on the same :05 marks, and only when a message was stored since the last sweep (or six hours have passed).
+  const wd = await watchdogState();
+  const watchdogNow = wd.shared ? watchdogMust(new Date(), wd.value) : new Date().getMinutes() % 10 === 5;
+  if (watchdogNow) {
+    try { report.watchdog = await watchdog(); await clearWatchdog(); } catch (e) { report.watchdog = { error: (e as Error).message }; }
+  } else report.watchdog = { skipped: true };
+
+  // Proposals close when the oldest one reaches five working days, and at the 10:00 post. Not every ten minutes.
+  const exp = await expireState();
+  const expireNow = exp.shared ? expireMust(new Date(), exp.value) : new Date().getMinutes() % 10 === 5;
+  if (expireNow) {
+    try {
+      const { expireProposals } = await import("@/lib/morning");
+      report.expired = await expireProposals();
+      const oldest = await sql()`select min(created_at) as at from requests where status = 'proposed'`;
+      const at = oldest[0]?.at ? new Date(oldest[0].at as string | Date) : null;
+      await rememberExpire(at ? new Date(workingDaysFrom(at, 5).getTime() + 60_000).toISOString() : null);
+    } catch (e) { report.expired = { error: (e as Error).message }; }
   }
 
-  // Heartbeat for /api/health and uptime monitors.
-  try { await sql()`insert into settings (key, value) values ('tick_last', ${JSON.stringify(new Date().toISOString())}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
+  // Heartbeat. The uptime monitor reads it from the runtime cache. Postgres is written only when that cache is absent,
+  // which is the behaviour from before this change.
+  await noteBeat("tick", {});
+  if (!(await idleOn())) {
+    try { await sql()`insert into settings (key, value) values ('tick_last', ${JSON.stringify(new Date().toISOString())}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
+  }
+  report.idleCache = (await idleOn()) ? "on" : "off";
   return NextResponse.json(report);
 }
 

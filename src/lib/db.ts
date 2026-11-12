@@ -1,16 +1,24 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { pokeQueue, pokeWatchdog } from "./idle";
 import type { Client } from "./types";
 
 let _sql: NeonQueryFunction<false, false> | null = null;
 
-/** Accepts DATABASE_URL or any prefixed variant Vercel's Neon integration writes (e.g. storage_DATABASE_URL). */
+/**
+ * Accepts DATABASE_URL or any prefixed variant Vercel's Neon integration writes (e.g. storage_DATABASE_URL).
+ * Prefers a pooled host (`-pooler`) when one is present: the serverless driver speaks HTTP, so the
+ * connection is not held open, and the pooler is the one Neon expects from a function.
+ */
 export function databaseUrl(): string | null {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const found: string[] = [];
+  const add = (v: string | undefined) => { if (v && !found.includes(v)) found.push(v); };
+  add(process.env.DATABASE_URL);
   for (const [k, v] of Object.entries(process.env)) {
-    if (k.endsWith("_DATABASE_URL") && !k.endsWith("_UNPOOLED") && v) return v;
+    if (!v) continue;
+    if ((k.endsWith("_DATABASE_URL") || k.endsWith("_POSTGRES_URL") || k === "POSTGRES_URL") && !k.endsWith("_UNPOOLED") && !k.includes("NON_POOLING")) add(v);
   }
-  if (process.env.POSTGRES_URL) return process.env.POSTGRES_URL;
-  return null;
+  add(process.env.POSTGRES_URL);
+  return found.find((u) => u.includes("-pooler")) ?? found[0] ?? null;
 }
 
 export function sql(): NeonQueryFunction<false, false> {
@@ -88,4 +96,7 @@ export async function enqueue(kind: string, payload: unknown, delaySeconds = 0):
   await sql()`
     insert into queue (kind, payload, next_run_at)
     values (${kind}, ${JSON.stringify(payload)}::jsonb, now() + (${delaySeconds} || ' seconds')::interval)`;
+  // The minute tick skips the queue table until this time. The poke is what makes the next minute look.
+  await pokeQueue(new Date(Date.now() + delaySeconds * 1000));
+  await pokeWatchdog(new Date(Date.now() + 3 * 60_000));
 }

@@ -8,6 +8,7 @@
  * before the hub started is never touched), `chat_inbox_last` (the last poll, for health and hub_status).
  */
 import { sql } from "./db";
+import { idleOn, inboxCursor, noteBeat, rememberInbox } from "./idle";
 import { appSpaces, chat, chatAsUser, chatReader, gchatConfigured, inboxSpaceName, rememberInboxSpace } from "./gchat";
 import { handleIntakeMessage } from "./chat-intake";
 import type { ChatMessage } from "./gchat-events";
@@ -65,17 +66,26 @@ export function newHumanMessages(list: chat_v1.Schema$Message[], since: string):
 export async function pollInbox(): Promise<{ space: string | null; read: number; handled: string[]; errors: string[] }> {
   const handled: string[] = [], errors: string[] = [];
   const report = async (r: { space: string | null; read: number; handled: string[]; errors: string[] }) => {
-    try { await sql()`insert into settings (key, value) values ('chat_inbox_last', ${JSON.stringify({ at: new Date().toISOString(), ...r })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
+    const quiet = r.read === 0 && r.errors.length === 0;
+    if (!quiet || !(await idleOn())) {
+      try { await sql()`insert into settings (key, value) values ('chat_inbox_last', ${JSON.stringify({ at: new Date().toISOString(), ...r })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
+    }
+    await noteBeat("inbox", { ...r });
     return r;
   };
   let space: string | null = null;
-  try { space = await inboxSpace(); } catch (e) { return report({ space: null, read: 0, handled, errors: [`space: ${(e as Error).message.slice(0, 160)}`] }); }
-  if (!space) return report({ space: null, read: 0, handled, errors: [`no space named "${inboxSpaceName()}" has the app as a member yet`] });
-
-  const s = await sql()`select value from settings where key = 'chat_inbox_since'`;
-  // First run: start now. Nothing shared before the hub began reading is picked up.
-  const since = s.length && s[0].value ? String(s[0].value) : new Date().toISOString();
-  if (!s.length) await sql()`insert into settings (key, value) values ('chat_inbox_since', ${JSON.stringify(since)}::jsonb) on conflict (key) do nothing`;
+  let since: string;
+  const cached = await inboxCursor();
+  if (cached) { space = cached.space; since = cached.since; }
+  else {
+    try { space = await inboxSpace(); } catch (e) { return report({ space: null, read: 0, handled, errors: [`space: ${(e as Error).message.slice(0, 160)}`] }); }
+    if (!space) return report({ space: null, read: 0, handled, errors: [`no space named "${inboxSpaceName()}" has the app as a member yet`] });
+    const s = await sql()`select value from settings where key = 'chat_inbox_since'`;
+    // First run: start now. Nothing shared before the hub began reading is picked up.
+    since = s.length && s[0].value ? String(s[0].value) : new Date().toISOString();
+    if (!s.length) await sql()`insert into settings (key, value) values ('chat_inbox_since', ${JSON.stringify(since)}::jsonb) on conflict (key) do nothing`;
+    await rememberInbox(space, since);
+  }
 
   let list: chat_v1.Schema$Message[] = [];
   try {
@@ -99,6 +109,9 @@ export async function pollInbox(): Promise<{ space: string | null; read: number;
     // Advance even on error: a message that fails is retried by the watchdog if it was stored, never re-read here.
     if (m.createTime && m.createTime > last) last = m.createTime;
   }
-  if (last !== since) await sql()`update settings set value = ${JSON.stringify(last)}::jsonb, updated_at = now() where key = 'chat_inbox_since'`;
+  if (last !== since) {
+    await sql()`update settings set value = ${JSON.stringify(last)}::jsonb, updated_at = now() where key = 'chat_inbox_since'`;
+    await rememberInbox(space, last);
+  }
   return report({ space, read: fresh.length, handled, errors });
 }

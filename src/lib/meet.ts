@@ -1,5 +1,6 @@
 import { google, type drive_v3 } from "googleapis";
 import { sql, allClients, enqueue } from "./db";
+import { addMeetFile, forgetMeetFile, knownMeetFiles, markMeetRepairDone, meetReadersCached, meetRepairDone, meetSinceCached, noteBeat, rememberMeetSince, saveKnownMeetFiles, saveMeetReaders } from "./idle";
 import { resolveClientFromText } from "./resolve";
 import { sortMeeting } from "./llm/meeting";
 import { processMessage } from "./pipeline";
@@ -105,9 +106,19 @@ export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string
   const out = new Map<string, NoteDoc>();
   let okCount = 0;
   // Addresses that are not Google accounts are set aside for a day (settings `meet_reader_off:<email>` holds until when).
-  const off = new Map((await sql()`select key, value from settings where key like 'meet_reader_off:%'`).map((r) => [String(r.key).slice("meet_reader_off:".length), new Date(String(r.value))]));
   // Each view counts from its first read (settings `meet_reader_since:<email>`): a Drive that becomes readable brings no backlog.
-  const firstRead = new Map((await sql()`select key, value from settings where key like 'meet_reader_since:%'`).map((r) => [String(r.key).slice("meet_reader_since:".length), new Date(String(r.value))]));
+  // Both maps are remembered outside Postgres after the first read, so a quiet five minutes does not wake the database.
+  const cachedReaders = await meetReadersCached();
+  const off = new Map(Object.entries(cachedReaders?.off ?? {}).map(([k, v]) => [k, new Date(v)]));
+  const firstRead = new Map(Object.entries(cachedReaders?.since ?? {}).map(([k, v]) => [k, new Date(v)]));
+  if (!cachedReaders) {
+    for (const r of await sql()`select key, value from settings where key like 'meet_reader_off:%'`) off.set(String(r.key).slice("meet_reader_off:".length), new Date(String(r.value)));
+    for (const r of await sql()`select key, value from settings where key like 'meet_reader_since:%'`) firstRead.set(String(r.key).slice("meet_reader_since:".length), new Date(String(r.value)));
+  }
+  const persistReaders = () => saveMeetReaders(
+    Object.fromEntries([...off].map(([k, v]) => [k, v.toISOString()])),
+    Object.fromEntries([...firstRead].map(([k, v]) => [k, v.toISOString()])),
+  );
   const now = new Date();
   for (const as of people) {
     const until = off.get(as);
@@ -116,17 +127,25 @@ export async function findNoteDocs(days = 3, opts: { errors?: Array<{ as: string
     try {
       for (const doc of await findNoteDocsAs(as, start)) if (!out.has(doc.id)) out.set(doc.id, doc);
       okCount++;
-      if (!firstRead.has(as)) await sql()`insert into settings (key, value) values (${readerSinceKey(as)}, ${JSON.stringify(now.toISOString())}::jsonb) on conflict (key) do nothing`;
+      if (!firstRead.has(as)) {
+        await sql()`insert into settings (key, value) values (${readerSinceKey(as)}, ${JSON.stringify(now.toISOString())}::jsonb) on conflict (key) do nothing`;
+        firstRead.set(as, now);
+        await persistReaders();
+      }
     }
     catch (e) {
       const p = readerProblem(e);
       if (p.kind === "no_account") {
         opts.skipped?.push({ as, why: p.message });
-        try { await sql()`insert into settings (key, value) values (${readerOffKey(as)}, ${JSON.stringify(new Date(Date.now() + READER_OFF_HOURS * 3_600_000).toISOString())}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* next run tries again */ }
+        const until = new Date(Date.now() + READER_OFF_HOURS * 3_600_000);
+        off.set(as, until);
+        try { await sql()`insert into settings (key, value) values (${readerOffKey(as)}, ${JSON.stringify(until.toISOString())}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* next run tries again */ }
+        await persistReaders();
       } else opts.errors?.push({ as, error: p.message });
     }
   }
   if (!okCount && !out.size) throw new Error(`Drive could not be read as anyone: ${opts.errors?.[0]?.error ?? opts.skipped?.[0]?.why ?? "unknown"}`);
+  if (!cachedReaders) await persistReaders();
   return [...out.values()].sort((a, b) => a.modifiedTime.localeCompare(b.modifiedTime));
 }
 
@@ -654,7 +673,10 @@ export async function rereadNoteDoc(fileId: string): Promise<string> {
   await sql()`delete from queue where done_at is null and kind = 'process_message'
     and payload->>'messageId' in (select id::text from messages where channel = 'meet' and external_id like ${"meet:" + fileId + ":%"})`;
   await sql()`delete from settings where key = ${"meet_retry:" + fileId}`;
-  return processNoteDoc(doc);
+  await forgetMeetFile(fileId);
+  const read = await processNoteDoc(doc);
+  await addMeetFile(fileId);
+  return read;
 }
 
 /**
@@ -695,18 +717,31 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
   const processed: string[] = [], errors: string[] = [];
   const started = Date.now();
   const skipped: Array<{ as: string; why: string }> = [];
+  const body = (extra: Record<string, unknown>) => ({ at: new Date().toISOString(), found: 0, processed, errors, skipped: skipped.map((x) => `${x.as}: ${x.why}`), ...extra });
   const save = async (extra: Record<string, unknown>) => {
-    try { await sql()`insert into settings (key, value) values ('meet_poll_last', ${JSON.stringify({ at: new Date().toISOString(), found: 0, processed, errors, skipped: skipped.map((x) => `${x.as}: ${x.why}`), ...extra })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
+    const row = body(extra);
+    await noteBeat("meet", row);
+    try { await sql()`insert into settings (key, value) values ('meet_poll_last', ${JSON.stringify(row)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ }
   };
-  // A trace before any slow step, so a run that is cut short still shows where it was.
-  await save({ phase: "repair" });
-  // The one-time look at every meeting read before the certainty rule (2026-10-05); a no-op once done.
-  try { const rep = await repairMeetingClients(); if (rep) processed.push(rep); } catch (e) { errors.push(`client repair: ${(e as Error).message.slice(0, 200)}`); }
-  await save({ phase: "listing" });
+  // The one-time client repair hits Postgres only until it has recorded itself done.
+  if (!(await meetRepairDone())) {
+    await save({ phase: "repair" });
+    try {
+      const rep = await repairMeetingClients();
+      if (rep) processed.push(rep);
+      if (!rep || /repair done/i.test(rep)) await markMeetRepairDone();
+    } catch (e) { errors.push(`client repair: ${(e as Error).message.slice(0, 200)}`); }
+  }
   let docs: NoteDoc[] = [];
   const readerErrors: Array<{ as: string; error: string }> = [];
-  try {
+  let sinceIso = await meetSinceCached();
+  if (!sinceIso) {
     const since = await meetSince();
+    sinceIso = since.toISOString();
+    await rememberMeetSince(sinceIso);
+  }
+  const since = new Date(sinceIso);
+  try {
     docs = (await findNoteDocs(3, { errors: readerErrors, skipped })).filter((d) => new Date(d.modifiedTime) > since);
     // A person the hub could not read as shows on health and in the brief, even when the others were fine. An address
     // that is no Google account is listed under `skipped`, not as an issue.
@@ -717,8 +752,17 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
     await save({ phase: "failed" });
     return { found: 0, processed, errors };
   }
-  const known = new Set((await sql()`select drive_file_id from meetings where drive_file_id = any(${docs.map((d) => d.id)}::text[])`).map((r) => String(r.drive_file_id)));
+  let knownIds = await knownMeetFiles();
+  if (!knownIds) {
+    knownIds = (await sql()`select drive_file_id from meetings`).map((r) => String(r.drive_file_id));
+    await saveKnownMeetFiles(knownIds);
+  }
+  const known = new Set(knownIds);
   const todo = docs.filter((d) => !known.has(d.id));
+  if (!todo.length && !errors.length) {
+    await noteBeat("meet", body({ found: docs.length, phase: "done" }));
+    return { found: docs.length, processed, errors };
+  }
   await save({ found: docs.length, phase: "reading", todo: todo.map((d) => d.name.slice(0, 50)) });
   let done = 0;
   for (const doc of todo) {
@@ -733,6 +777,7 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
       await sql()`insert into meetings (drive_file_id, title, held_at, organiser, attendees, client_id, scope, doc_url, notes, summary)
         values (${doc.id}, ${meetingTitle(doc.name)}, ${doc.modifiedTime}, ${doc.owner}, '{}', null, 'unknown', ${"https://docs.google.com/document/d/" + doc.id + "/edit"}, '', ${JSON.stringify(["Could not be read: three attempts ran out of time. Ask for a re-read."])}::jsonb) on conflict (drive_file_id) do nothing`;
       await sql()`delete from settings where key = ${attemptKey}`;
+      await addMeetFile(doc.id);
       processed.push(`${doc.name.slice(0, 40)}: set aside after 3 cut-short attempts`);
       errors.push(`${doc.name.slice(0, 40)}: could not be read in time, set aside (reread to retry)`);
       continue;
@@ -743,6 +788,7 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
     try {
       processed.push(`${await processNoteDoc(doc)} (${Math.round((Date.now() - t0) / 1000)} s)`); done++;
       await sql()`delete from settings where key = ${attemptKey}`;
+      await addMeetFile(doc.id);
     }
     catch (e) {
       const msg = (e as Error).message;
@@ -750,6 +796,7 @@ export async function pollMeetings(): Promise<{ found: number; processed: string
         // Deleted, or a shortcut to a doc the hub cannot open: remember it so it is not tried every five minutes.
         await sql()`insert into meetings (drive_file_id, title, held_at, organiser, attendees, client_id, scope, doc_url, notes, summary)
           values (${doc.id}, ${doc.name}, ${doc.modifiedTime}, null, '{}', null, 'unknown', null, '', 'not readable: deleted or a dead shortcut') on conflict (drive_file_id) do nothing`;
+        await addMeetFile(doc.id);
         processed.push(`${doc.name.slice(0, 40)}: not readable, skipped`);
         continue;
       }

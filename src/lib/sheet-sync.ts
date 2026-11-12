@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { sql, allClients } from "./db";
 import { findClientTab, tabHeaders, tabRows, mapHeaders, sheetConfig, sheetsConfigured, dividerIndex, updateTaskCells } from "./sheets";
 import { normList } from "./pulp";
@@ -174,6 +175,18 @@ export async function syncClientTab(client: { id: string; name: string; sheetTab
     }
   }
   return { rows: parsed.length, imported: ins.length, updated: upd.length, hubRows: parsed.length - mine.length, removed };
+}
+
+/** A fingerprint of every client tab. The minute loop skips the database mirror when this has not changed. */
+export async function clientTabsDigest(clients: Awaited<ReturnType<typeof allClients>>): Promise<string> {
+  const parts: string[] = [];
+  for (const client of clients) {
+    const tab = await findClientTab(client);
+    if (!tab) { parts.push(`${client.id}\tnone`); continue; }
+    const rows = await tabRows(tab);
+    parts.push(`${tab}\t${createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 20)}`);
+  }
+  return parts.sort().join("\n");
 }
 
 /** All clients (or one, by id). Progress is saved per tab so a timeout still leaves a readable report. */
