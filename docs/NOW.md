@@ -77,6 +77,12 @@ hits Postgres as before.
   near-identical): the hub closes the ask itself, links the card to it (`tasks.request_id`), replaces the proposal
   card with one line and the card link. (4) Likely match: one line in that thread with "Yes, same task" /
   "No, different"; asked once per pair, never decided alone. (5) Everything else: untouched, as today.
+  (6) One-time catch-up at deploy, for what already exists (88 asks were waiting on 12 Nov): every waiting ask, and
+  every expired one back to 22 Sep, is compared once with that client's board cards made from two days before the
+  ask onwards. Sure matches are linked; a waiting ask's proposal card becomes the one line with the card link, an
+  expired ask changes in the record only. Nothing new is posted in the feed (the lesson of the 5 Oct meeting repair).
+  Likely matches of waiting asks are not asked one by one: the next 10:00 post marks them "a card may already
+  exist" with the link, under the person's name. Runs in small batches over a few minutes, once, then never again.
   Build notes: poke whatever `idle.ts` caches about proposals when one is closed this way; a card on a board capped
   at 1000 by Pulp may not be seen, and its ask then expires as today.
 
