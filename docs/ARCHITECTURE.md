@@ -58,11 +58,12 @@ src/lib/
   meet.ts            Gemini notes from Google Meet → actions, ideas, decisions (read as each team member)
   team.ts            the team record: names and emails from the Pulp boards, Chat ids from Drop messages, who a message tags
   board-mirror.ts    every card on every department board, every 5 minutes; rows for hand-made cards; archived detection
+  match.ts           a card made outside the feed closes the ask it answers: free proofs, one cheap model call, undo, one-time catch-up
   morning.ts         the 10:00 India run: expire dead proposals, the Today post, Monday's ideas; catch-up from the minute loop
   transcribe.ts      Speech-to-Text, short and long
   filter/noise.ts    what never reaches a model              dedupe.ts   repeats against open requests
   resolve.ts         client matching (prefix, whole-word name/alias, domain, number, thread, suggestion)
-  llm/extract.ts, llm/classify.ts, llm/meeting.ts, llm/client.ts   the model calls, caching, cost log
+  llm/extract.ts, llm/classify.ts, llm/meeting.ts, llm/match.ts, llm/client.ts   the model calls, caching, cost log
   route.ts / config.ts   deterministic routing from config/*.yaml
   tasks.ts / pulp.ts     card creation (from a proposal), labels, card comments, client rules
   proposal.ts            the proposal card: options, posting, the tap or the typed answer
@@ -155,6 +156,7 @@ time. Slack pushes events to `/api/slack/events` in real time (acknowledged with
 - **Rows for hand-made cards (2026-09-28).** A card made by hand on any board, the PMs board included, gets its row from the board mirror once it sits in To Do or later, with the client from its label or title; without a client label it waits (marked, listed in the brief) and is never skipped. Only cards created from 28 Sep 2026.
 - **PMs board, rows by hand (until 2026-09-28, no longer).** A card on the PMs board (`sheet: manual` in `config/boards.yaml`, now removed) got no row from the hub: the drag out of Staging approves it, the PM adds the row when wanted (card link in the client's tab; the mirror adopts it within 10 minutes and fills a blank Task cell), and Status follows from there. Moving the card to a department board writes the row at that moment.
 - **Board mirror.** Every five minutes each board in `config/boards.yaml` is read in one call and every card nobody else tracks is kept with origin `board` (list, labels, assignee, due, client from a label or the title), so Claude answers about hand-made cards that have no sheet row. Reads only; a card that left the board is marked Archived; a mirrored card that gets a sheet row is the sheet's from then on (2026-09-23).
+- **A card made outside the feed (2026-11-12, `match.ts`).** When the board read stores a hand-made card (or a card gets its client) and that client has an ask waiting, a queue job compares them: the ask's id or link on the card, or the same title, is proof without a model; otherwise one small call on `claude-haiku-5-5` judges whether it is the same work. Certain: the ask is closed, the card tied to it (`tasks.request_id`), the proposal card replaced by a line with a **Not the same task** button. Likely: a question with **Yes, same task** / **No, different**. The same look runs once when a proposal is stored, for a card made in the three days before. Nothing here runs on a schedule or opens Postgres by itself; 40 model calls a day at most.
 - **Board changes.** A hub card moved to another board keeps its identity: the hub records the new board, re-derives the department from the board map (Department cell, card link, target list), puts the `Task Hub` and client labels back, and writes the row if the card had none and the new board is not the PMs board. Rows are found by card id, never by the board in the link.
 - **Status follows the card** every minute: list name into Status (as spelled in Pulp), Done fills Date Completed where the tab has that column and moves the row below the divider; moving back out of Done reopens it. Rows are located by Pulp link, so PMs may reorder freely. The last status written is remembered per task and re-compared, so a failed write is retried until it matches.
 - **Hand-made cards.** A card created directly in Pulp and linked in a row by hand (title optional) is picked up by the 10-minute mirror; the hub fills a blank Task cell from the card and then checks the card in rotation (40 a minute), writing Status only when the card moves; a typed status is never overwritten on first look.
@@ -209,7 +211,8 @@ Health page and uptime monitor · new client in three steps · Slack install per
 ## 14. Costs
 
 Model: about two calls per message with cached instructions, a few dollars a month at hundreds of messages; logged per
-call. Speech-to-Text about 2 cents per audio minute. Claude questions cost the hub nothing. Vercel, Neon and Google
+call. The card match adds a few cents a month (cheapest model, only when a hand-made card meets a waiting ask, 40 calls
+a day at most; `hub_status.cardMatch`). Speech-to-Text about 2 cents per audio minute. Claude questions cost the hub nothing. Vercel, Neon and Google
 Cloud on their current plans.
 
 ## 15. Decisions that shaped it (the short list; dates in STATE.md)

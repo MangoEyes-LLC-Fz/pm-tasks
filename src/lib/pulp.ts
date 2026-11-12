@@ -11,7 +11,7 @@ import { boards as boardsConfig } from "./config";
 
 export interface PulpCard { id: string; boardId: string; listId: string; title: string; updatedAt?: string }
 /** A card as the board read returns it: labels and members by name, due date, for the board mirror. */
-export interface BoardCard extends PulpCard { labels: string[]; members: string[]; dueAt: string | null; createdAt: string | null }
+export interface BoardCard extends PulpCard { labels: string[]; members: string[]; dueAt: string | null; createdAt: string | null; /** first 400 characters; not part of the board fingerprint, so an edited description never wakes the database */ description: string }
 export interface PulpList { id: string; name: string; position: number }
 export interface PulpBoard { id: string; name: string }
 interface Member { user_id?: string; id?: string; email?: string; full_name?: string; name?: string; display_name?: string; profile?: { email?: string; full_name?: string; name?: string } }
@@ -209,7 +209,7 @@ export const pulp = {
    * hub status shows what Pulp actually returns.
    */
   async boardCards(boardId: string): Promise<{ cards: BoardCard[]; sample: { keys: string[]; labels: unknown; members: unknown } | null; capped: boolean; paging: string | null }> {
-    type Raw = { id: string; board_id?: string; list_id: string; name: string; closed?: boolean; updated_at?: string; created_at?: string; due_date?: string | null; labels?: unknown; members?: unknown; assignees?: unknown };
+    type Raw = { id: string; board_id?: string; list_id: string; name: string; description?: string | null; closed?: boolean; updated_at?: string; created_at?: string; due_date?: string | null; labels?: unknown; members?: unknown; assignees?: unknown };
     const CAP = 1000;
     const all = new Map<string, Raw>();
     const first = await call<Raw[]>("GET", `/boards/${boardId}/cards`);
@@ -225,6 +225,7 @@ export const pulp = {
     const cards = rows.map((c) => ({
       id: c.id, boardId: c.board_id ?? boardId, listId: c.list_id, title: c.name, updatedAt: c.updated_at, createdAt: c.created_at ?? null,
       labels: names(c.labels, ["name", "title"]), members: names(c.members ?? c.assignees, ["full_name", "name", "display_name", "email"]), dueAt: c.due_date ?? null,
+      description: typeof c.description === "string" ? c.description.slice(0, 400) : "",
     }));
     const s = rows[0];
     return { cards, sample: s ? { keys: Object.keys(s), labels: s.labels ?? null, members: s.members ?? s.assignees ?? null } : null, capped: first.length >= CAP && !paging, paging };

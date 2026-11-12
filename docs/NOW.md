@@ -1,6 +1,6 @@
 # Where the hub is today
 
-**Updated 2026-11-12, end of the session.** This page is the first thing a new session reads: what is live, what
+**Updated 2026-11-12, end of the second session of the day.** This page is the first thing a new session reads: what is live, what
 changed last, what is being watched, what waits on Arun, and how to see the live hub. It is rewritten at the end of
 every working session; the history behind every line is in `docs/STATE.md` (dated decisions) and `git log`.
 
@@ -17,6 +17,22 @@ their tap makes the Pulp card (To Do, assigned) and the PM Overview sheet row; e
 mirrored so Claude can answer about all of them; the 10:00 India post names what each person has to do today.
 
 ## What changed on 2026-11-12 (this session)
+
+**A card made outside the feed closes its waiting ask** (feature 3.12, `src/lib/match.ts`; second session of the day).
+The team sometimes makes the card straight in Pulp instead of tapping Create card. The hub mirrored that card but
+never tied it to the ask, so the ask stayed "waiting" in the feed and in the 10:00 post (88 items that morning). Now:
+
+- A hand-made card that the board read has just stored, for a client with an ask waiting, is compared with those asks
+  by a queue job. The ask's id or link on the card, or the same title, is proof for free. Otherwise one small model
+  call judges whether it is the same work, whatever the wording, on `claude-haiku-5-5` (`LLM_MODEL_MATCH`).
+- Certain: the ask is closed and tied to the card; the proposal card becomes one line with **Not the same task**.
+  Likely: a question with **Yes, same task** / **No, different**. Nothing else changes.
+- The same look runs once when a proposal is stored, for a card the team made in the three days before.
+- Cost was the condition. No schedule, no query on a quiet minute, 40 calls a day at most, the cheapest model.
+  `hub_status.cardMatch` shows the 30-day cost and the catch-up.
+- A one-time catch-up starts by itself on the first tick after the deploy: every ask waiting or expired since 22 Sep,
+  five calls a minute, 300 at most, nothing new posted. Likely matches on waiting asks show in the next 10:00 post as
+  "a card may already exist".
 
 **The database can suspend when nobody is asking it anything.** November's Neon bill showed 0.25 CU every hour, about
 $20, with scale to zero already on. The compute never got five quiet minutes. The cause was not a pool left open.
@@ -38,6 +54,11 @@ hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
 
+- The card match (3.12): `hub_status.cardMatch.catchUp.state` should read `done` within about an hour of the deploy;
+  `cardMatch.spend30d` should be cents and name `claude-haiku-5-5`. If it names the hub's own model, the API would not
+  serve the cheap one for this account: the match still works, at about ten times the price, and Arun should know.
+  The first hand-made card for a client with an ask waiting should turn that ask's proposal card into the "already has
+  a card in Pulp" line, or a question, within about six minutes. A quiet hour must still show the compute suspended.
 - After this deploys, a quiet hour (no mail, no Drop message, no Slack event, no reminder due) should show the Neon
   compute suspended, not 0.25 CU. The tick log should say `idleCache: "on"`. `/api/health` should be `ok: true` with
   `db.touched: false`.
@@ -64,30 +85,12 @@ hits Postgres as before.
 
 - Feed links: the repeat line's link text "open the card"; the morning list's "task to confirm" items linking to
   their feed thread. Proposed 2026-09-30, no answer yet.
-- **A card made outside the feed closes its waiting ask** (planned 2026-11-12, not built; Arun has a question first).
-  Today a card made by hand in Pulp, or by any tool, is mirrored and gets its row, but the proposal for the same ask
-  stays "waiting for a tap": it shows in the 10:00 post, the repeat line says "no card yet", and a later tap makes a
-  second card. The plan adds no model call, no schedule, no table, and never opens Postgres on its own:
-  (1) the check runs inside the board read only on the path that already writes to Postgres, when the boards'
-  fingerprint changed and a new card was inserted or a card just got its client; one query per affected client
-  compares those cards with that client's proposals waiting from the last 14 days; an unchanged board stays in the
-  runtime cache as now. (2) The same check once when a proposal is stored, against that client's board cards of the
-  last few days, for a card made before the hub proposed; the database is already open for that message.
-  (3) Sure match (the card's description carries the ask's source link or request id, or the titles are
-  near-identical): the hub closes the ask itself, links the card to it (`tasks.request_id`), replaces the proposal
-  card with one line and the card link. (4) Likely match: one line in that thread with "Yes, same task" /
-  "No, different"; asked once per pair, never decided alone. (5) Everything else: untouched, as today.
-  (6) One-time catch-up at deploy, for what already exists (88 asks were waiting on 12 Nov): every waiting ask, and
-  every expired one back to 22 Sep, is compared once with that client's board cards made from two days before the
-  ask onwards. Sure matches are linked; a waiting ask's proposal card becomes the one line with the card link, an
-  expired ask changes in the record only. Nothing new is posted in the feed (the lesson of the 5 Oct meeting repair).
-  Likely matches of waiting asks are not asked one by one: the next 10:00 post marks them "a card may already
-  exist" with the link, under the person's name. Runs in small batches over a few minutes, once, then never again.
-  Build notes: poke whatever `idle.ts` caches about proposals when one is closed this way; a card on a board capped
-  at 1000 by Pulp may not be seen, and its ask then expires as today.
 
 ## Known limits
 
+- The card match sees only cards the board read sees: a card on a board Pulp caps at 1000 may be missed, and its ask
+  then expires after five working days as before. A sheet row typed by hand with no Pulp card is not matched.
+- A card with almost nothing written on it ("fix page") cannot be judged: the hub asks, or leaves it.
 - Pulp board read cap (above). Slack `files:read` only for the workspaces where it was granted. Chat has no bulk delete.
 - The Drop space is read as arun@ (domain-wide delegation); a per-user sign-in is a later option.
 - The hub cannot relabel a Pulp card: a card made from a meeting that is later re-filed keeps its old label, and the

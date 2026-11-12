@@ -15,6 +15,20 @@ Last updated: 2026-11-12 (Neon was awake all night because the crons and the hea
 
 ## Decisions finalised
 
+- **2026-11-12, a card made outside the feed closes its waiting ask (Arun):** Arun asked what the hub knows when the
+  team makes a card in Pulp by hand, or with another tool, instead of tapping Create card. Answer then: the card was
+  mirrored and got its row, but nothing tied it to the ask, so the record said "waiting for a decision" while the work
+  was already carded. Decided, with cost as the condition ("nearly a free tool"): (1) the hub understands meaning, not
+  wording, so the judgement is a model call, but only when a hand-made card and a waiting ask of the same client exist
+  together, and never when the ask's link or id on the card, or an identical title, already proves it; (2) the call
+  runs on the cheapest current model (`claude-haiku-5-5`, $0.10 / $0.50 per million tokens; `LLM_MODEL_MATCH`
+  overrides; if the API rejects that model the hub's own model answers once), with a ceiling of 40 calls a day;
+  (3) nothing runs on a schedule and nothing opens Postgres on its own: the triggers sit on the board read's changed
+  path and on the storing of a new proposal, and the work is a queue job; (4) certain → closed by the hub with a line
+  that names the card and a button that undoes it; likely → a question with two buttons; the hub never decides a
+  likely match alone; (5) what already exists is handled once: a catch-up over every waiting ask and every ask expired
+  since 22 Sep, 300 calls at most, posting nothing new; (6) the cost is visible: `hub_status.cardMatch`.
+  Expected cost at today's volume: a few cents a month, and a few cents once for the catch-up.
 - **2026-11-12, the database may suspend when nothing is happening (Arun):** Neon billing showed the Launch compute at 0.25 CU every hour of November, about $20 a month, with scale to zero already on and only the main branch. Neon suspends about five minutes after the last query, so something was querying at least that often, day and night. It was not a connection pool: the app already uses `@neondatabase/serverless` over HTTP, one query at a time, nothing held open. It was the schedules. `/api/tick` every minute read the schema hash, upserted every client, re-queued old mail skips, selected the queue, selected and stamped every due Pulp card, selected reminders, selected the morning-post flag, and wrote `tick_last`, whether or not anything had changed. `/api/inbox-tick` wrote `chat_inbox_last` three times a minute. `/api/meet-tick` every five minutes read reader cursors and wrote `meet_poll_last` before it knew whether a new notes doc existed. `/api/health`, which the uptime monitor calls, ran several counts on every ping. Decided: the crons keep their schedules (Drop still every 20 seconds, mail every minute, Pulp on the same rotation, reminders at the minute they are due, the 10:00 post at 10:00). What they remember between runs (next job, next reminder, board fingerprints, the card lists, the poll heartbeats) lives in the Vercel Runtime Cache (`src/lib/idle.ts`), which is not Neon. Postgres is opened when a row changed, a job or a reminder is due, the morning post is due, or six hours have passed since an empty queue was last confirmed. An empty queue confirmed only every six hours is what lets the compute suspend; a lost cache write cannot hide a job for longer than that. Proposals close when the oldest one reaches five working days (and still at 10:00), not every ten minutes. `/api/health` without a query string does not open Postgres. `?deep=1` does. Where the runtime cache is missing, `idleCache` in the tick JSON is `off` and every check hits Postgres as before. The connection string prefers a `-pooler` host when both are set. No Neon or Vercel setting was changed.
 - **2026-10-06, mail through the group was dropped as bulk (Vishnu):** Vishnu saw that most mails copying
   `clientsuccess.team@` (taskhub@ is a member, so it is in Cc whenever the group is) got nothing in the feed. Found
@@ -283,7 +297,7 @@ Last updated: 2026-11-12 (Neon was awake all night because the crons and the hea
 
 - **Shape.** One Next.js app on Vercel (project `mangoeyes-task-hub`, domain `pm-tasks.vercel.app`, branch
   `claude/mangowise-task-automation-3qnd3k`), Neon Postgres via the Vercel integration (variable `storage_DATABASE_URL`,
-  code accepts any `*_DATABASE_URL`). Model: Claude Sonnet 5 (`LLM_MODEL`), two structured calls per message.
+  code accepts any `*_DATABASE_URL`). Model: Claude Sonnet 5 (`LLM_MODEL`), two structured calls per message; the card match (2026-11-12) uses `claude-haiku-5-5` (`LLM_MODEL_MATCH`).
 - **Slack = client side only.** One Slack app ("Task Hub"), distributed, installed per client workspace via
   `/api/slack/install`. One workspace = one client. Staff recognised by email domain `mangoeyesagency.com`
   (`STAFF_EMAIL_DOMAINS`, exceptions in `STAFF_EMAILS`). Bot reads channels it is invited to. Only ever writes an
@@ -461,7 +475,7 @@ Required: `storage_DATABASE_URL` (Neon; any `*_DATABASE_URL` or `POSTGRES_URL` i
 `CRON_SECRET`, `GOOGLE_SERVICE_ACCOUNT_B64`, `GOOGLE_PROJECT_NUMBER`, `PM_SHEET_ID`, `GCHAT_REVIEW_SPACE` (the feed),
 `PULP_TOKEN`, `GMAIL_MAILBOX` (arun@), `GMAIL_INTAKE_ADDRESS` (comma-separated intake aliases), `SLACK_CLIENT_ID`,
 `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
-Optional, with defaults: `LLM_MODEL` (claude-sonnet-5), `REVIEW_SURFACE` (gchat), `REVIEW_MODE` (notify),
+Optional, with defaults: `LLM_MODEL` (claude-sonnet-5), `LLM_MODEL_MATCH` (claude-haiku-5-5, the card match only), `MATCH_DAILY_CAP` (40 model calls a day for the card match; 0 = free checks only), `REVIEW_SURFACE` (gchat), `REVIEW_MODE` (notify),
 `GCHAT_INBOX_NAME` ("Task Hub Drop"), `CHAT_READER` (defaults to `GMAIL_MAILBOX`; the account the Drop space is read as),
 `GCHAT_ENDPOINT_URL`, `GCHAT_INTAKE_SPACE` (retired space), `PM_SHEET_CONFIG_TAB` (Config), `PULP_BASE_URL`,
 `STAFF_EMAIL_DOMAINS` (mangoeyesagency.com), `STAFF_EMAILS`, `VOICE_BUCKET`, `VOICE_BUCKET_LOCATION`, `SPEECH_V2` (off = v1 engine only), `SPEECH_V2_TRIES`,

@@ -375,6 +375,10 @@ async function processStored(m: Message, messageId: string, hash: string, noiseV
       await enqueue("post_proposal", { requestId: p.requestId }, 60);
     }
   }
+  // The team may have made the card already (right after the call, before the notes were read): one look, queued only
+  // when this client has a hand-made card from the last few days (match.ts).
+  try { const { queueAskMatch } = await import("./match"); await queueAskMatch(m.clientId, proposals.map((p) => p.requestId)); }
+  catch (e) { console.error("match: queue failed", (e as Error).message); }
   return { messageId, outcome: "review", requestIds };
 }
 

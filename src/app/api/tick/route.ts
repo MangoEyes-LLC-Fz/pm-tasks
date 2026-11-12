@@ -24,7 +24,14 @@ export async function GET(req: Request) {
   const elapsed = () => Date.now() - started;
 
   // 0. The schema applies itself after a deploy that changed it (idempotent statements, once per schema).
-  try { const { ensureSchema } = await import("@/lib/schema-apply"); const r = await ensureSchema(); if (r.applied) report.schema = r; }
+  try {
+    const { ensureSchema } = await import("@/lib/schema-apply"); const r = await ensureSchema();
+    if (r.applied) {
+      report.schema = r;
+      // Postgres is open: the one-time look at asks that already have a card starts here, once (match.ts).
+      try { const { kickCatchUp } = await import("@/lib/match"); if (await kickCatchUp()) report.matchCatchUp = "started"; } catch (e) { report.matchCatchUp = { error: (e as Error).message }; }
+    }
+  }
   catch (e) { report.schema = { error: (e as Error).message }; }
 
   // 1. Client map. The sheet is read every minute; Postgres is written only when a row changed.
@@ -406,6 +413,22 @@ async function runJob(kind: string, payload: Record<string, unknown>) {
       const { createCardForTask } = await import("@/lib/tasks");
       const tid = payload.taskId ?? (await sql()`select id from tasks where request_id = ${payload.requestId as string}`)[0]?.id;
       if (tid) await createCardForTask(String(tid));
+      return;
+    }
+    case "match_cards": {
+      // Cards made outside the feed, against that client's waiting asks (src/lib/match.ts).
+      const { runMatchCards } = await import("@/lib/match");
+      await runMatchCards(payload as { clientId: string; cards: Array<{ cardId: string; description?: string }> });
+      return;
+    }
+    case "match_asks": {
+      const { runMatchAsks } = await import("@/lib/match");
+      await runMatchAsks(payload as { clientId: string; requestIds: string[] });
+      return;
+    }
+    case "match_catchup": {
+      const { runCatchUp } = await import("@/lib/match");
+      await runCatchUp();
       return;
     }
     case "post_proposal": {

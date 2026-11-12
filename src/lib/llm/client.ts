@@ -12,8 +12,11 @@ function client(): Anthropic {
 
 // First-party per-MTok prices for the cost line in the EOD summary. Cache read 0.1×, cache write 1.25×.
 const PRICES: Record<string, { in: number; out: number }> = {
+  "claude-opus-5-5": { in: 4, out: 20 },
   "claude-opus-5": { in: 5, out: 25 },
+  "claude-sonnet-5-5": { in: 2, out: 10 },
   "claude-sonnet-5": { in: 2, out: 10 },
+  "claude-haiku-5-5": { in: 0.1, out: 0.5 },
   "claude-haiku-4-5": { in: 1, out: 5 },
 };
 
@@ -32,25 +35,44 @@ function cost(model: string, u: Anthropic.Usage): number {
  * Nothing volatile above the breakpoint. Config is rendered in fixed key order.
  */
 export async function structuredCall<T extends z.ZodType>(opts: {
-  step: "extract" | "classify" | "meeting";
+  step: "extract" | "classify" | "meeting" | "match" | "match_catchup";
   instructions: string;
   userContent: string;
   schema: T;
   maxTokens: number;
   messageId: string | null;
+  /** A cheaper model for a small judgement (the card match). When the API will not serve it, the call runs once on the hub's own model. */
+  model?: string;
+  /** false: a short prompt that needs neither the routing table nor a cache entry of its own. */
+  routing?: boolean;
 }): Promise<z.infer<T>> {
-  const model = env.model();
+  let model = opts.model || env.model();
   const started = Date.now();
-  const call = (maxTokens: number) => client().messages.parse({
+  const system = opts.routing === false
+    ? [{ type: "text" as const, text: opts.instructions }]
+    : [
+      { type: "text" as const, text: opts.instructions, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } },
+      { type: "text" as const, text: `Request types:\n${routingForPrompt()}`, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } },
+    ];
+  const send = (maxTokens: number) => client().messages.parse({
     model,
     max_tokens: maxTokens,
-    system: [
-      { type: "text", text: opts.instructions, cache_control: { type: "ephemeral", ttl: "1h" } },
-      { type: "text", text: `Request types:\n${routingForPrompt()}`, cache_control: { type: "ephemeral", ttl: "1h" } },
-    ],
+    system,
     messages: [{ role: "user", content: opts.userContent }],
     output_config: { format: zodOutputFormat(opts.schema), effort: "low" },
   });
+  // The cheaper model is asked first. A request the API rejects for that model (not known to this account, a
+  // parameter it does not take) runs on the hub's own model instead, so the step never stops over a model name.
+  const call = async (maxTokens: number) => {
+    try { return await send(maxTokens); }
+    catch (e) {
+      const rejected = e instanceof Anthropic.BadRequestError || e instanceof Anthropic.NotFoundError || e instanceof Anthropic.PermissionDeniedError;
+      if (!rejected || model === env.model()) throw e;
+      console.error(`model ${model} rejected for ${opts.step}, using ${env.model()}:`, (e as Error).message.slice(0, 200));
+      model = env.model();
+      return send(maxTokens);
+    }
+  };
   // A long answer (a meeting with many action items) can run past the budget and arrive as cut-off JSON. One retry
   // with four times the room; the budget is an upper bound, so a short answer costs the same either way.
   let res: Awaited<ReturnType<typeof call>>;

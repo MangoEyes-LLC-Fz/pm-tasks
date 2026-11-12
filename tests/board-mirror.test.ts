@@ -5,7 +5,7 @@ import type { Client } from "../src/lib/types";
 
 const client = (id: string, name: string, aliases: string[] = []): Client => ({ id, name, scope: "client", slackChannels: [], emailDomains: [], whatsappNumbers: [], boards: {}, clientFacingAck: false, aliases });
 const clients = [client("hoh", "House Of Health", ["HOH"]), client("tsf", "The SKIN Firm", ["TSF", "Skin Firm"])];
-const card = (id: string, listId: string, title = "x", labels: string[] = []): BoardCard => ({ id, boardId: "b", listId, title, labels, members: [], dueAt: null, createdAt: null });
+const card = (id: string, listId: string, title = "x", labels: string[] = []): BoardCard => ({ id, boardId: "b", listId, title, labels, members: [], dueAt: null, createdAt: null, description: "" });
 const known = (pulp: string, origin: string, list: string | null, extra: Partial<KnownCard> = {}): KnownCard => ({ id: `t-${pulp}`, pulp_card_id: pulp, list_id: list, origin, title: "x", completed_at: null, notes: null, labels: [], ...extra });
 
 describe("the board mirror", () => {

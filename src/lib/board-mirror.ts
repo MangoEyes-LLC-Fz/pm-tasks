@@ -126,6 +126,8 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
   const clients = await allClients();
   const names = new Map((await pulp.boards()).map((b) => [b.id, b.name]));
   const nextFps: Record<string, string> = {};
+  // Hand-made cards this run saw for the first time, or that just got their client: looked at against that client's waiting asks (match.ts).
+  const forMatch: Array<{ clientId: string; cardId: string; createdAt: string | null; description: string }> = [];
   for (const b of await mirroredBoards()) {
     if (outOfTime()) { report.errors.push(`stopped before ${names.get(b.id) ?? b.id}: out of time`); break; }
     try {
@@ -160,6 +162,7 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
             as v(cl, c, l, t, pr, a, d, s, cr, co, lb, lm)
           on conflict (sheet_key) where sheet_key is not null do update set list_id = excluded.list_id, title = excluded.title, labels = excluded.labels`;
       }
+      for (const card of plan.insert) { const cl = clientFromCard(card, clients); if (cl) forMatch.push({ clientId: cl, cardId: card.id, createdAt: card.createdAt, description: card.description }); }
       for (const u of plan.update) {
         const f = fields(u.card);
         await sql()`update tasks set list_id = ${u.card.listId}, board_id = ${b.id}, title = ${u.card.title}, labels = ${u.card.labels}::text[], priority = ${f.priority}, assignee = coalesce(${f.assignee}, assignee), due_at = ${u.card.dueAt},
@@ -172,6 +175,7 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
       const byCard = new Map(known.map((k) => [k.pulp_card_id, k]));
       const claim = cards.map((card) => ({ k: byCard.get(card.id), clientId: clientFromCard(card, clients) })).filter((x) => x.k?.origin === "board" && !x.k.client_id && x.clientId);
       if (claim.length) await sql()`update tasks t set client_id = v.cl from unnest(${claim.map((x) => x.k!.id)}::uuid[], ${claim.map((x) => x.clientId)}::text[]) as v(id, cl) where t.id = v.id and t.client_id is null`;
+      for (const x of claim) { const card = cards.find((c) => c.id === x.k!.pulp_card_id); if (card && x.clientId) forMatch.push({ clientId: x.clientId, cardId: card.id, createdAt: card.createdAt, description: card.description }); }
       // Rows for hand-made cards at To Do or later (2026-09-28). No client on the card yet: it waits, marked, never skipped.
       let rows = 0, waitingLabel = 0;
       const todo = boardLists.find((l) => normList(l.name) === "todo")?.position ?? null;
@@ -198,10 +202,18 @@ export async function mirrorBoards(outOfTime: () => boolean = () => false): Prom
     const dup = await sql()`select t.id from tasks t where t.origin = 'board' and exists (select 1 from tasks o where o.pulp_card_id = t.pulp_card_id and o.origin <> 'board')`;
     if (dup.length) {
       const ids = dup.map((d) => String(d.id));
+      // An ask tied to the mirrored card (match.ts) moves to the row that stays.
+      await sql()`update tasks o set request_id = g.request_id from tasks g where g.id = any(${ids}::uuid[]) and g.request_id is not null and o.pulp_card_id = g.pulp_card_id and o.id <> g.id and o.request_id is null`;
       await sql()`delete from status_events where task_id = any(${ids}::uuid[])`;
       await sql()`delete from tasks where id = any(${ids}::uuid[])`;
     }
   } catch (e) { report.errors.push(`dedupe: ${(e as Error).message.slice(0, 160)}`); }
+  // A card made outside the feed may be the card of an ask still waiting for a tap. Postgres is open here anyway; a
+  // client with no ask waiting costs nothing more than this one read.
+  if (forMatch.length) {
+    try { const { queueCardMatch } = await import("./match"); await queueCardMatch(forMatch); }
+    catch (e) { report.errors.push(`match: ${(e as Error).message.slice(0, 160)}`); }
+  }
   report.seconds = Math.round((Date.now() - started) / 100) / 10;
   try {
     await sql()`insert into settings (key, value) values ('board_mirror_last', ${JSON.stringify(report)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;

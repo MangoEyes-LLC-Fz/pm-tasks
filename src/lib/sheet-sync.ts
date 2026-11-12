@@ -168,6 +168,8 @@ export async function syncClientTab(client: { id: string; name: string; sheetTab
     const gone = await sql()`select id from tasks where origin = 'sheet' and sheet_tab = ${tab} and (sheet_key is null or sheet_key <> all(${keep}::text[]))`;
     if (gone.length) {
       const ids = gone.map((g) => String(g.id));
+      // An ask tied to this card (match.ts) moves to the row that stays, when the row was only re-keyed.
+      await sql()`update tasks o set request_id = g.request_id from tasks g where g.id = any(${ids}::uuid[]) and g.request_id is not null and g.pulp_card_id is not null and o.pulp_card_id = g.pulp_card_id and o.id <> g.id and o.request_id is null`;
       await sql()`delete from status_events where task_id = any(${ids}::uuid[])`;
       await sql()`delete from settings where key = any(${ids.flatMap((id) => [`sheet_stage:${id}`, `sheet_tab:${id}`])}::text[])`;
       await sql()`delete from tasks where id = any(${ids}::uuid[])`;

@@ -208,6 +208,12 @@ alter table messages add column if not exists sender_user text;                 
 alter table requests add column if not exists kind text not null default 'task';       -- task | reminder | idea | rule | note
 alter table requests add column if not exists asked_user text;                         -- who the proposal @mentions (users/<id> or email)
 alter table requests add column if not exists proposal jsonb;                          -- {cardName, thread, assignee, dueAt, department, priority}
+-- 2026-11-12: a card made outside the feed closes its waiting ask (src/lib/match.ts). The request becomes 'created'
+-- with decided_by 'system:made_in_pulp' (or the person who confirmed), tasks.request_id points the hand-made card at
+-- it, and requests.proposal gains madeInPulp {taskId, cardId, link, how}, matchAsk (a question waiting for a tap),
+-- maybeCard (a likely card noted by the one-time catch-up) and notSame (cards a person said are different).
+-- Settings key match_catchup holds the one-time catch-up's progress; llm_calls.step 'match' is its model cost.
+create index if not exists tasks_request on tasks (request_id) where request_id is not null;
 
 -- "Remind me on Friday": to the person who asked, at that time, every morning until Done.
 create table if not exists reminders (

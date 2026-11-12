@@ -134,6 +134,11 @@ export async function decideProposal(kind: "create" | "remind" | "no", requestId
 export async function answerProposal(requestId: string, text: string, who: string, whoUser: string | null): Promise<string> {
   const t = text.toLowerCase().trim();
   let out: string | null = null;
+  // The hub asked, or noted in the 10:00 post, whether a card made in Pulp is this task: "same" or "different" answers that.
+  if (/\b(same|different|not the same)\b/.test(t)) {
+    const q = await sql()`select 1 from requests where id = ${requestId} and status = 'proposed' and (proposal ? 'matchAsk' or proposal ? 'maybeCard')`;
+    if (q.length) { const { answerMatch } = await import("./match"); return answerMatch(requestId, null, !/\b(different|not the same)\b/.test(t), who); }
+  }
   if (/\b(no card|not a task|no task|drop|skip|ignore)\b/.test(t)) out = await decideProposal("no", requestId, who, whoUser, {});
   else if (/\bremind\b/.test(t)) out = await decideProposal("remind", requestId, who, whoUser, {}, t.replace(/.*\bremind( me)?\b/, ""));
   else if (/\b(create|make it|make the card|yes|go ahead|ok(ay)?|approve)\b/.test(t)) {

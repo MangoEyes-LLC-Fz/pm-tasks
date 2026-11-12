@@ -171,6 +171,15 @@ async function handleCardClick(ev: NormalisedEvent) {
       }
       case "proposal_no":
         return done(await decideProposal("no", p.requestId, who, whoUser, {}));
+      case "match_yes":
+      case "match_no": {
+        const { answerMatch } = await import("@/lib/match");
+        return done(await answerMatch(p.requestId, p.taskId ?? null, fn === "match_yes", who));
+      }
+      case "match_undo": {
+        const { undoMatch } = await import("@/lib/match");
+        return done(await undoMatch(p.requestId, who));
+      }
       case "reminder_done":
         return done(await markReminderDone(p.reminderId, who));
       case "idea_task":

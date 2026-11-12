@@ -156,6 +156,11 @@ export async function updateMessageText(messageName: string, text: string): Prom
   await chat().spaces.messages.patch({ name: messageName, updateMask: "text,cardsV2", requestBody: { text, cardsV2: [] } });
 }
 
+/** Replace a message with a line and, when given, one small card under it (the undo button of a closed ask). */
+export async function updateMessageCard(messageName: string, text: string, card: chat_v1.Schema$GoogleAppsCardV1Card | null, cardId: string): Promise<void> {
+  await chat().spaces.messages.patch({ name: messageName, updateMask: "text,cardsV2", requestBody: { text, cardsV2: card ? [{ cardId, card }] : [] } });
+}
+
 export async function downloadAttachment(resourceName: string): Promise<Buffer> {
   try {
     const res = await chat().media.download({ resourceName, alt: "media" }, { responseType: "arraybuffer" });
@@ -280,6 +285,25 @@ export function proposalCard(p: ProposalOptions): chat_v1.Schema$GoogleAppsCardV
     ]),
   ];
   return { header: { title: `${p.clientName} · task to confirm`, subtitle: `"${p.quote.replace(/\s+/g, " ").slice(0, 90)}${p.quote.length > 90 ? "…" : ""}"` }, sections: [{ widgets }] };
+}
+
+/** Under "already has a card in Pulp": the one button that brings the ask back when the hub matched the wrong card. */
+export function matchUndoCard(p: { requestId: string }): chat_v1.Schema$GoogleAppsCardV1Card {
+  return { sections: [{ widgets: [buttons([{ text: "Not the same task", fn: "match_undo", params: { requestId: p.requestId }, danger: true }])] }] };
+}
+
+/** The hub is not certain a hand-made card is this ask: the card, and two buttons. */
+export function matchQuestionCard(p: { requestId: string; taskId: string; askTitle: string; card: { title: string; listName: string; assignee: string | null; link: string } }): chat_v1.Schema$GoogleAppsCardV1Card {
+  const widgets: chat_v1.Schema$GoogleAppsCardV1Widget[] = [
+    { decoratedText: { topLabel: "Card in Pulp", text: `<b>${esc(p.card.title)}</b>`, bottomLabel: `${p.card.listName || "on the board"} · ${p.card.assignee ?? "nobody assigned yet"}`, wrapText: true } },
+    ...(p.card.link ? [{ textParagraph: { text: `<a href="${p.card.link}">Open the card</a>` } }] : []),
+    { decoratedText: { topLabel: "The ask waiting here", text: esc(p.askTitle), wrapText: true } },
+    buttons([
+      { text: "Yes, same task", fn: "match_yes", params: { requestId: p.requestId, taskId: p.taskId }, primary: true },
+      { text: "No, different", fn: "match_no", params: { requestId: p.requestId, taskId: p.taskId } },
+    ]),
+  ];
+  return { header: { title: "Is this card the same task?", subtitle: "Yes closes the ask here. No keeps it waiting." }, sections: [{ widgets }] };
 }
 
 /** Under a reminder: the one button that closes it. */
