@@ -64,6 +64,21 @@ hits Postgres as before.
 
 - Feed links: the repeat line's link text "open the card"; the morning list's "task to confirm" items linking to
   their feed thread. Proposed 2026-09-30, no answer yet.
+- **A card made outside the feed closes its waiting ask** (planned 2026-11-12, not built; Arun has a question first).
+  Today a card made by hand in Pulp, or by any tool, is mirrored and gets its row, but the proposal for the same ask
+  stays "waiting for a tap": it shows in the 10:00 post, the repeat line says "no card yet", and a later tap makes a
+  second card. The plan adds no model call, no schedule, no table, and never opens Postgres on its own:
+  (1) the check runs inside the board read only on the path that already writes to Postgres, when the boards'
+  fingerprint changed and a new card was inserted or a card just got its client; one query per affected client
+  compares those cards with that client's proposals waiting from the last 14 days; an unchanged board stays in the
+  runtime cache as now. (2) The same check once when a proposal is stored, against that client's board cards of the
+  last few days, for a card made before the hub proposed; the database is already open for that message.
+  (3) Sure match (the card's description carries the ask's source link or request id, or the titles are
+  near-identical): the hub closes the ask itself, links the card to it (`tasks.request_id`), replaces the proposal
+  card with one line and the card link. (4) Likely match: one line in that thread with "Yes, same task" /
+  "No, different"; asked once per pair, never decided alone. (5) Everything else: untouched, as today.
+  Build notes: poke whatever `idle.ts` caches about proposals when one is closed this way; a card on a board capped
+  at 1000 by Pulp may not be seen, and its ask then expires as today.
 
 ## Known limits
 
