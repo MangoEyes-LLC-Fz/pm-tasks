@@ -68,9 +68,13 @@ hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
 
-- The history pass: `hub_status.cardMatch.history.state` should reach `done`; read `pairsSample` and check the pairs
-  by hand; cost should be cents. The first card filed through Claude for a task already waiting in the feed should
-  come back as "Card created" with the link, and that thread's proposal card should carry the outcome line.
+- The history pass is done (13 Nov, 11:07 to 11:25 UTC): 658 asks that had expired or been answered "No card" and had
+  no card of their own, 77 calls, about four cents. 2 more were tied for certain (both read by hand, both right),
+  72 got a `likelyCard` on the record, 584 have no card the hub can find. None of the tied ones was a "No card" ask:
+  the guess that people tap No card after making the card by hand did not hold. With the 12 Nov catch-up the past
+  stands at 34 asks tied to a hand-made card, 72 likely, the rest without a card. Total cost of the card match so far:
+  $0.08. Still to see on real traffic: the first card filed through Claude for a task already waiting in the feed
+  coming back as "Card created" with the link, and that thread's proposal card carrying the outcome line.
 - The card match (3.12). The catch-up is proven: it finished 17 minutes after the deploy (18:41 to 18:58 UTC), read 701
   asks in 76 calls for $0.04 on `claude-haiku-5-5`, tied 32 asks to their hand-made cards (12 that were still waiting,
   20 that had expired) and marked 9 waiting asks "a card may already exist". All 32 pairs were read by hand in
