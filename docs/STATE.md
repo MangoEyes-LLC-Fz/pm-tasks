@@ -47,7 +47,7 @@ Last updated: 2026-11-12 (Neon was awake all night because the crons and the hea
   *Third step.* The two left were team mails addressed to that same owner (one in a new conversation, one the weekly
   lead report): he is in no Slack workspace, so the recipients said nothing. A recipient is now also recognised from
   their own mails (`knownMailSenders`: an outside address with two or more mails, all filed under one client). The
-  one-time kick key is `mail_client_rerun_3`.
+  one-time kick key is `mail_client_rerun_3`. Live result, 16:15 UTC: 2 looked at, 2 found; `mailsWaitingOnClient14d` 0.
 - **2026-11-13, every way a card can be made, and the whole past (Arun: "a professional setup, nothing skipped"):**
   the 12 Nov catch-up tied 32 of 701 asks, and that undercounted the past. Arun named two scenarios: the card made by
   any other mode (by hand, another tool), and the card made through the Task Hub connector in Claude, both while the

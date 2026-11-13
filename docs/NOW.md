@@ -87,7 +87,9 @@ hits Postgres as before.
 - The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"). Sheet: proven, the 12:30 UTC run read 16
   tabs with no errors (before: quota errors on six tabs every run). Mail: 10 mails waited on a client after the first
   deploy; the second look (12:44 UTC) filed 9 of 11 under Leicester MediSpa by their conversation and two asks from
-  them were proposed; the last two wait for the third step's look (`mailsWaitingOnClient14d` should read 0). Old asks in a conversation
+  them were proposed; the third step's look (16:15 UTC) filed the last two. Proven: `mailsWaitingOnClient14d` is 0, no queue errors, no
+  stuck messages. Still to see on real traffic: the next team mail to a client with the group in Cc arriving with
+  no question. Old asks in a conversation
   filed late (the Leicester MediSpa thread) may come up as proposals; the card match ties the ones already made.
   Ideas: Monday 16 Nov 10:00 India, one post of at most 25 cards and none on Tuesday.
 
