@@ -107,9 +107,11 @@ function buildHandler(owner: McpKeyOwner) {
         const r = await processMessage(m, { skip: false, reason: null });
         const ids = r.requestIds ?? [];
         if (!ids.length) return text(humanOutcome(r.outcome, r.reason));
-        const made = await sql()`select t.title, t.board_id, t.pulp_card_id, t.priority, t.assignee, t.due_at, r.status, r.department from requests r left join tasks t on t.request_id = r.id where r.id = any(${ids}::uuid[])`;
+        const made = await sql()`select t.title, t.board_id, t.pulp_card_id, t.priority, t.assignee, t.due_at, r.status, r.department from requests r left join tasks t on t.request_id = coalesce(r.merged_into, r.id) where r.id = any(${ids}::uuid[])`;
         const { pulp } = await import("@/lib/pulp");
-        return text(made.map((t) => t.pulp_card_id
+        return text(made.map((t) => t.pulp_card_id && t.status === "merged"
+          ? `This was already asked for ${c.name} and has its card: "${t.title}" · assigned to ${t.assignee ?? "nobody yet"} · ${pulp.cardUrl(String(t.board_id), String(t.pulp_card_id))}. Your words were added to that card; no second card was made.`
+          : t.pulp_card_id
           ? `Card created for ${c.name}: "${t.title}" · ${String(t.department)} · ${t.priority} · assigned to ${t.assignee}${t.due_at ? ` · due ${whenLabel(new Date(String(t.due_at)), true)}` : ""} · ${pulp.cardUrl(String(t.board_id), String(t.pulp_card_id))}. The feed has the line; the sheet row is written.`
           : `"${t.title ?? request}" could not be created now (status ${String(t.status)}); it stays proposed in the feed thread and can be confirmed there.`).join("\n"));
       });
@@ -147,12 +149,20 @@ function buildHandler(owner: McpKeyOwner) {
         const tasks = (await sql()`select count(*) filter (where created_at > now() - interval '7 days')::int as created_7d, count(*) filter (where completed_at is null)::int as open, count(*) filter (where staging and completed_at is null)::int as staging from tasks`)[0];
         const spend = (await sql()`select count(*)::int as calls, coalesce(sum(cost_usd),0)::numeric(10,4) as usd from llm_calls where created_at > now() - interval '30 days'`)[0];
         const matchSpend = (await sql()`select count(*)::int as calls, coalesce(sum(cost_usd),0)::numeric(10,4) as usd, max(model) as model from llm_calls where step in ('match', 'match_catchup') and created_at > now() - interval '30 days'`)[0];
-        const matchCatchUp = (await sql()`select value from settings where key = 'match_catchup'`)[0]?.value ?? null;
+        const matchRows = await sql()`select key, value from settings where key in ('match_catchup', 'match_history')`;
+        const brief = (key: string, sample: number) => {
+          const v = matchRows.find((x) => x.key === key)?.value as Record<string, unknown> | undefined;
+          if (!v) return null;
+          const { pairs, clients, cursor, chunk, ...counts } = v as { pairs?: unknown[]; clients?: unknown[] | null; cursor?: unknown; chunk?: unknown };
+          return { ...counts, clientsLeft: Array.isArray(clients) ? clients.length : null, pairsSample: Array.isArray(pairs) ? pairs.slice(0, sample) : [] };
+        };
+        const matchCatchUp = brief("match_catchup", 0);
+        const matchHistory = brief("match_history", 40);
         const polls = overlayPolls(await sql()`select key, value from settings where key in ('pulp_poll_last','gmail_poll_last','gchat_last_event','slack_last_event','voice_last','sheet_cards_last','board_mirror_last','meet_poll_last','tick_last','chat_inbox_last','eod_last')`, await allBeats());
         const queueErrors = await sql()`select kind, attempts, left(coalesce(last_error, ''), 300) as last_error, payload->>'messageId' as message_id, next_run_at from queue where done_at is null and last_error is not null order by next_run_at limit 10`;
         const stuck = await sql()`select m.id, m.channel, left(m.text, 60) as text, m.created_at, m.raw->>'lastError' as last_error, m.raw->>'failedAt' as failed_at, (select count(*)::int from queue q where q.kind = 'process_message' and q.payload->>'messageId' = m.id::text) as retries from messages m where m.skip_reason is null and m.created_at > now() - interval '2 days' and m.created_at < now() - interval '3 minutes' and not exists (select 1 from requests r where r.message_id = m.id) order by m.created_at desc limit 10`;
         const workspaces = await sql()`select w.team_id, w.team_name, w.is_home, w.installed_at, c.name as client from slack_workspaces w left join clients c on c.slack_team_id = w.team_id order by w.installed_at`;
-        return text({ you: owner, messagesByChannel7d: byChannel, tasks, modelSpend30d: spend, cardMatch: { spend30d: matchSpend, catchUp: matchCatchUp }, lastPolls: Object.fromEntries(polls.map((p) => [p.key, p.value])), slackWorkspaces: workspaces, queueErrors, stuckMessages: stuck });
+        return text({ you: owner, messagesByChannel7d: byChannel, tasks, modelSpend30d: spend, cardMatch: { spend30d: matchSpend, catchUp: matchCatchUp, history: matchHistory }, lastPolls: Object.fromEntries(polls.map((p) => [p.key, p.value])), slackWorkspaces: workspaces, queueErrors, stuckMessages: stuck });
       });
     },
     {

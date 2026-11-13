@@ -52,6 +52,32 @@ async function waitingOn(requestId: string): Promise<WaitingOn | null> {
   return { who, threadUrl: threadUrl(r[0].thread as string | null) };
 }
 
+type Direct = { assignee?: string | null; department?: string | null; priority?: Priority | null; dueAt?: string | null };
+const directOf = (m: Message): Direct | null => (m.raw as { direct?: Direct } | null)?.direct ?? null;
+
+/**
+ * Filed through Claude for an ask that is already waiting for a tap in the feed (2026-11-13): the card is made for
+ * that ask, with the details given in Claude, and the proposal card in its thread becomes the outcome line. One ask,
+ * one card, and the client's own words stay on it. Until then the hub answered "no card yet, tap Create card" and
+ * made nothing, or made a second ask and left the first one waiting. Returns the new task's id, or null when the ask
+ * is not waiting (it already has a card, or was decided).
+ */
+async function createWaitingAsk(targetRequestId: string, m: Message, direct: Direct): Promise<string | null> {
+  const t = await sql()`select r.status, r.proposal->>'cardName' as card, coalesce(pm.raw->>'feedThreadKey', 'msg-' || pm.id::text) as thread_key
+    from requests r join messages pm on pm.id = r.message_id where r.id = ${targetRequestId} and not exists (select 1 from tasks x where x.request_id = r.id)`;
+  // Waiting for a tap, or closed unanswered after five working days: either way nobody decided, and this is the decision.
+  if (!t.length || (t[0].status !== "proposed" && t[0].status !== "expired")) return null;
+  const { decideProposal } = await import("./proposal");
+  const line = await decideProposal("create", targetRequestId, m.sender, null, { department: direct.department ?? null, assignee: direct.assignee ?? null, priority: direct.priority ?? null, dueAt: direct.dueAt ? new Date(direct.dueAt) : null });
+  try {
+    const gchat = await import("./gchat");
+    if (t[0].card && gchat.gchatConfigured()) await gchat.updateMessageText(String(t[0].card), line);
+    else await postText(line, { threadKey: String(t[0].thread_key) });
+  } catch (e) { console.error("proposal card update failed", (e as Error).message); }
+  const made = await sql()`select id from tasks where request_id = ${targetRequestId} limit 1`;
+  return made.length ? String(made[0].id) : null;
+}
+
 /** Store a message with a reason and nothing else (an acknowledgement, an image, a note still transcribing). */
 export async function storeSkipped(m: Message, skipReason: string): Promise<{ id: string }> {
   const rows = await sql()`
@@ -168,6 +194,9 @@ async function processStored(m: Message, messageId: string, hash: string, noiseV
   const dd = await dedupe(m.clientId, latestPart(m.text), hash, messageId);
   if (dd.kind === "exact_duplicate" || dd.kind === "likely_duplicate") {
     await sql()`update messages set skip_reason = ${dd.kind} where id = ${messageId}`;
+    // Filed through Claude and the same ask is still waiting for a tap: this is the tap.
+    const viaClaude = directOf(m);
+    if (viaClaude && !dd.taskId) { try { dd.taskId = await createWaitingAsk(dd.requestId, m, viaClaude); } catch (e) { console.error("card for the waiting ask failed", (e as Error).message); } }
     await postThreadFollowupComment({ taskId: dd.taskId, requestId: dd.requestId, message: m });
     if ((m.channel === "intake" || m.channel === "task_cmd" || m.channel === "slack" || inSharedThread(m)) && reviewMode() === "notify") {
       // The feed is the team's record: a repeat that was noted on its card gets a line too, not only the sender's thread.
@@ -295,6 +324,12 @@ async function processStored(m: Message, messageId: string, hash: string, noiseV
     // Belongs to an open request: noted on its card, nothing new proposed.
     if (cl.same_as_open !== null && open[cl.same_as_open]) {
       const target = open[cl.same_as_open];
+      // Filed through Claude and that ask is still waiting for a tap: this is the tap (card made for the waiting ask).
+      const viaClaude = directOf(m);
+      if (viaClaude && !target.taskId && target.status === "proposed") {
+        try { const made = await createWaitingAsk(target.id, m, viaClaude); if (made) { target.taskId = made; target.status = "created"; } }
+        catch (e) { console.error("card for the waiting ask failed", (e as Error).message); }
+      }
       if (cl.same_as_kind === "nudge") {
         await sql()`update requests set status = 'merged', merged_into = ${target.id} where id = ${requestId}`;
         await sql()`update tasks set waiting_on_client_since = null where request_id = ${target.id}`;
@@ -343,7 +378,7 @@ async function processStored(m: Message, messageId: string, hash: string, noiseV
 
   // Filed through Claude with the details already given (2026-09-23): the person confirmed in Claude, so the card is
   // made at once and the feed gets the line and the outcome, no card with buttons.
-  const direct = (m.raw as { direct?: { assignee?: string | null; department?: string | null; priority?: Priority | null; dueAt?: string | null } } | null)?.direct;
+  const direct = directOf(m);
   if (direct) {
     const { decideProposal, storeProposal } = await import("./proposal");
     const p1 = proposals.filter((p) => (direct.priority ?? p.route.priority) === "P1").length;
@@ -359,6 +394,9 @@ async function processStored(m: Message, messageId: string, hash: string, noiseV
       } catch (e) { outcomes.push(`⚠️ Card not created for "${p.draft.title}": ${(e as Error).message.slice(0, 160)}. It stays proposed; reply "create" here to try again.`); await enqueue("post_proposal", { requestId: p.requestId }, 60); }
     }
     await postText(outcomes.join("\n"), { threadKey });
+    // A card just made through Claude may answer an ask still waiting in the feed under other words (match.ts).
+    try { const { queueHubCardMatch } = await import("./match"); await queueHubCardMatch(m.clientId, proposals.map((p) => p.requestId)); }
+    catch (e) { console.error("match: queue failed", (e as Error).message); }
     return { messageId, outcome: "review", requestIds };
   }
 

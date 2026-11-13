@@ -1,6 +1,6 @@
 # Where the hub is today
 
-**Updated 2026-11-12, end of the second session of the day.** This page is the first thing a new session reads: what is live, what
+**Updated 2026-11-13.** This page is the first thing a new session reads: what is live, what
 changed last, what is being watched, what waits on Arun, and how to see the live hub. It is rewritten at the end of
 every working session; the history behind every line is in `docs/STATE.md` (dated decisions) and `git log`.
 
@@ -16,7 +16,21 @@ reminder, idea, rule or note; only a task is proposed, as a card in the feed thr
 their tap makes the Pulp card (To Do, assigned) and the PM Overview sheet row; every card on every department board is
 mirrored so Claude can answer about all of them; the 10:00 India post names what each person has to do today.
 
-## What changed on 2026-11-12 (this session)
+## What changed on 2026-11-13
+
+**Every way a card can be made now closes its ask, and the past is being brought into line** (3.12, `match.ts`,
+`pipeline.ts`). Three additions to the card match of 12 Nov:
+
+- **Made through the Task Hub connector in Claude** while the same ask waits in the feed: the card is made for the
+  waiting ask (its proposal card becomes the outcome line; Claude gets the link). Before, the hub answered "no card
+  yet" and made nothing, or left the first ask waiting. A repeat seen only afterwards folds the waiting ask into the
+  Claude card, with the undo button, or asks the person.
+- **Made after someone tapped No card, or after the ask expired:** tied in the record; the feed is untouched.
+- **The whole history, once:** every ask since 22 Sep that expired or was answered "No card" and has no card, against
+  all of that client's hand-made cards in the window. Starts on the first tick after the deploy, about five model
+  calls a minute, 500 at most, record only. `hub_status.cardMatch.history` shows the counts and a sample of pairs.
+
+## What changed on 2026-11-12
 
 **A card made outside the feed closes its waiting ask** (feature 3.12, `src/lib/match.ts`; second session of the day).
 The team sometimes makes the card straight in Pulp instead of tapping Create card. The hub mirrored that card but
@@ -54,6 +68,9 @@ hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
 
+- The history pass: `hub_status.cardMatch.history.state` should reach `done`; read `pairsSample` and check the pairs
+  by hand; cost should be cents. The first card filed through Claude for a task already waiting in the feed should
+  come back as "Card created" with the link, and that thread's proposal card should carry the outcome line.
 - The card match (3.12). The catch-up is proven: it finished 17 minutes after the deploy (18:41 to 18:58 UTC), read 701
   asks in 76 calls for $0.04 on `claude-haiku-5-5`, tied 32 asks to their hand-made cards (12 that were still waiting,
   20 that had expired) and marked 9 waiting asks "a card may already exist". All 32 pairs were read by hand in

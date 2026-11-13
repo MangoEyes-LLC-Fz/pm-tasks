@@ -45,7 +45,7 @@ codex mcp add task-hub --url https://pm-tasks.vercel.app/api/mcp/mh_YOUR_KEY
 | `client_summary` | one client at a glance: counts + open list |
 | `recent_messages` | what came in, by client/channel, incl. updates that were not tasks |
 | `daily_summary` | the PM summary for today, the last N days, or a past day / range (from/to) |
-| `add_request` | create a card with the details decided in the chat (who asks, client, the ask, assignee; department, priority, due optional) → card in To Do, sheet row, feed line with the outcome. No confirmation in the feed |
+| `add_request` | create a card with the details decided in the chat (who asks, client, the ask, assignee; department, priority, due optional) → card in To Do, sheet row, feed line with the outcome. No confirmation in the feed | If the same task is already waiting in the feed, the card is made for that ask and Claude says so; if it already has a card, Claude gives that card's link and makes no second card.
 | `people` | the names a card can be assigned to |
 | `meetings`, `meeting_detail`, `ideas`, `decisions` | Meet notes: what was said, raised and agreed, by client and days or from/to |
 | `hub_status` | volumes, spend, last polls |

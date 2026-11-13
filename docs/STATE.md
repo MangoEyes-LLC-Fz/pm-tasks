@@ -15,6 +15,18 @@ Last updated: 2026-11-12 (Neon was awake all night because the crons and the hea
 
 ## Decisions finalised
 
+- **2026-11-13, every way a card can be made, and the whole past (Arun: "a professional setup, nothing skipped"):**
+  the 12 Nov catch-up tied 32 of 701 asks, and that undercounted the past. Arun named two scenarios: the card made by
+  any other mode (by hand, another tool), and the card made through the Task Hub connector in Claude, both while the
+  ask sits in the feed. Found in the code for the second one: a request filed through Claude that repeated a waiting
+  ask was answered "no card yet, tap Create card" and made nothing (same words), or was folded into the waiting ask
+  with no card (classifier), or made a second ask and left the first waiting (other words). Decided: (1) filed through
+  Claude and the ask is waiting or expired → the card is made for that ask with Claude's details, its proposal card
+  becomes the outcome line, Claude gets the link; (2) recognised only afterwards → the waiting ask is folded into the
+  Claude card (`merged`, `system:made_in_pulp`, undo button) or the person is asked; (3) a card made after a "No card"
+  tap or after expiry is tied in the record, feed untouched; a likely card on a closed ask is `likelyCard`; (4) the
+  whole history once, record only: expired and "No card" asks since 22 Sep against all of the client's hand-made cards
+  in the window, 500 calls at most on the cheap model, counts in `hub_status.cardMatch.history`.
 - **2026-11-12, a card made outside the feed closes its waiting ask (Arun):** Arun asked what the hub knows when the
   team makes a card in Pulp by hand, or with another tool, instead of tapping Create card. Answer then: the card was
   mirrored and got its row, but nothing tied it to the ask, so the record said "waiting for a decision" while the work

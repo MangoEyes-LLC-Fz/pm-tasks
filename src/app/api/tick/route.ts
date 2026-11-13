@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     if (r.applied) {
       report.schema = r;
       // Postgres is open: the one-time look at asks that already have a card starts here, once (match.ts).
-      try { const { kickCatchUp } = await import("@/lib/match"); if (await kickCatchUp()) report.matchCatchUp = "started"; } catch (e) { report.matchCatchUp = { error: (e as Error).message }; }
+      try { const { kickCatchUp, kickHistory } = await import("@/lib/match"); if (await kickCatchUp()) report.matchCatchUp = "started"; if (await kickHistory()) report.matchHistory = "started"; } catch (e) { report.matchCatchUp = { error: (e as Error).message }; }
     }
   }
   catch (e) { report.schema = { error: (e as Error).message }; }
@@ -424,6 +424,16 @@ async function runJob(kind: string, payload: Record<string, unknown>) {
     case "match_asks": {
       const { runMatchAsks } = await import("@/lib/match");
       await runMatchAsks(payload as { clientId: string; requestIds: string[] });
+      return;
+    }
+    case "match_hub_cards": {
+      const { runMatchHubCards } = await import("@/lib/match");
+      await runMatchHubCards(payload as { clientId: string; requestIds: string[] });
+      return;
+    }
+    case "match_history": {
+      const { runHistory } = await import("@/lib/match");
+      await runHistory();
       return;
     }
     case "match_catchup": {

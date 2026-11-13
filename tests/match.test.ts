@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { pairAllowed, sureWithoutModel, whoTag, closedLine, confirmedLine, questionText, cardsNear, matchDailyCap, MADE_IN_PULP, MATCH_DAILY_CAP, CATCHUP_CALL_CAP } from "../src/lib/match";
+import { pairAllowed, sureWithoutModel, whoTag, closedLine, confirmedLine, questionText, cardsNear, matchDailyCap, historyWindow, MADE_IN_PULP, MATCH_DAILY_CAP, CATCHUP_CALL_CAP, HISTORY_CALL_CAP } from "../src/lib/match";
 import { MatchSchema, matchPrompt, cleanMatches, MATCH_MODEL } from "../src/lib/llm/match";
 import { matchQuestionCard, matchUndoCard } from "../src/lib/gchat";
 import { boardCardsFingerprint } from "../src/lib/idle";
@@ -114,3 +114,18 @@ describe("cost guards", () => {
     expect(boardCardsFingerprint([{ ...base, description: "one" } as typeof base], false)).toBe(boardCardsFingerprint([{ ...base, description: "two" } as typeof base], false));
   });
 });
+
+describe("the whole history, once (2026-11-13)", () => {
+  it("compares a group of past asks with the cards made from three days before the first to two weeks after the last", () => {
+    const w = historyWindow([{ createdAt: day("2026-10-10") }, { createdAt: day("2026-10-12") }]);
+    expect(w.from.toISOString().slice(0, 10)).toBe("2026-10-07");
+    expect(w.to.toISOString().slice(0, 10)).toBe("2026-10-26");
+  });
+  it("has its own ceiling, counted apart from the live path's daily one", () => {
+    expect(HISTORY_CALL_CAP).toBeLessThanOrEqual(500);
+  });
+  it("the closed line fits a card made by hand and a card made through Claude alike", () => {
+    expect(closedLine({ who: "PMs", askTitle: "x", card: { title: "t", listName: "To Do", assignee: null, link: "" } })).toContain("made outside this thread");
+  });
+});
+

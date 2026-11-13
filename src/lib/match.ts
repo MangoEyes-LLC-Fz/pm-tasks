@@ -43,6 +43,8 @@ export interface Ask {
 }
 export interface Card {
   taskId: string; cardId: string; boardId: string; listId: string | null; title: string; assignee: string | null; labels: string[]; createdAt: Date; description: string;
+  /** A card the hub made itself through Claude has its own request; an ask it answers is folded into that one. Null for a hand-made card. */
+  ownRequestId: string | null;
 }
 
 // ---- pure ----
@@ -71,7 +73,7 @@ const cardWords = (c: { title: string; listName: string; assignee: string | null
 
 /** Pure: the line that replaces the proposal card when the hub closed the ask itself. */
 export function closedLine(p: { who: string; askTitle: string; card: { title: string; listName: string; assignee: string | null; link: string } }): string {
-  return `✅ ${p.who}: nothing to do here. "${p.askTitle}" already has a card in Pulp, made outside the feed: ${cardWords(p.card)}\nNot the same task? Tap the button and the ask comes back.`;
+  return `✅ ${p.who}: nothing to do here. "${p.askTitle}" already has a card in Pulp, made outside this thread: ${cardWords(p.card)}\nNot the same task? Tap the button and the ask comes back.`;
 }
 
 /** Pure: the line when a person confirmed it. */
@@ -99,16 +101,17 @@ export function cardsNear<C extends Pick<Card, "createdAt">>(asks: Array<Pick<As
 
 const dayOf = (d: Date) => d.toISOString().slice(0, 10);
 
-async function asksFor(clientId: string, opts: { ids?: string[]; statuses: string[]; since: string; after?: { at: string; id: string } | null; limit: number }): Promise<Ask[]> {
+async function asksFor(clientId: string, opts: { ids?: string[]; statuses: string[]; since: string; after?: { at: string; id: string } | null; limit: number; newest?: boolean }): Promise<Ask[]> {
   const rows = await sql()`
     select r.id, r.status, r.draft->>'title' as title, coalesce(r.quote, r.summary, '') as words, r.created_at, r.created_at::text as created_txt, r.message_id, m.permalink,
            r.proposal->>'cardName' as card_name, coalesce(m.raw->>'feedThreadKey', 'msg-' || m.id::text) as thread_key,
            r.proposal->>'askedName' as asked_name, r.asked_user, coalesce(r.proposal->'notSame', '[]'::jsonb) as not_same, (r.proposal->'matchAsk') is not null as pending
     from requests r join messages m on m.id = r.message_id
     where r.client_id = ${clientId} and r.kind = 'task' and r.status = any(${opts.statuses}::text[]) and r.created_at >= ${opts.since}::timestamptz
+      and not exists (select 1 from tasks t where t.request_id = r.id)
       and (${opts.ids ?? null}::uuid[] is null or r.id = any(${opts.ids ?? null}::uuid[]))
       and (${opts.after?.at ?? null}::text is null or r.created_at > ${opts.after?.at ?? null}::timestamptz or (r.created_at = ${opts.after?.at ?? null}::timestamptz and r.id > ${opts.after?.id ?? null}::uuid))
-    order by r.created_at, r.id limit ${opts.limit}`;
+    order by case when ${!!opts.newest} then r.created_at end desc, r.created_at, r.id limit ${opts.limit}`;
   return rows.map((r) => ({
     id: String(r.id), status: String(r.status), title: String(r.title ?? ""), words: String(r.words ?? ""), createdAt: new Date(String(r.created_at)), createdTxt: String(r.created_txt),
     messageId: String(r.message_id), permalink: (r.permalink as string | null) ?? null, cardName: (r.card_name as string | null) ?? null, threadKey: String(r.thread_key),
@@ -128,7 +131,22 @@ async function handMadeCards(clientId: string, opts: { cardIds?: string[]; since
     order by t.created_at desc limit ${opts.limit}`;
   return rows.map((t) => ({
     taskId: String(t.id), cardId: String(t.pulp_card_id), boardId: String(t.board_id), listId: (t.list_id as string | null) ?? null, title: String(t.title),
-    assignee: (t.assignee as string | null) ?? null, labels: Array.isArray(t.labels) ? (t.labels as unknown[]).map(String) : [], createdAt: new Date(String(t.created_at)), description: "",
+    assignee: (t.assignee as string | null) ?? null, labels: Array.isArray(t.labels) ? (t.labels as unknown[]).map(String) : [], createdAt: new Date(String(t.created_at)), description: "", ownRequestId: null,
+  }));
+}
+
+/** Cards the hub made through Claude (they carry their own request): by request, or by task. */
+async function hubCards(clientId: string, by: { requestIds?: string[]; taskIds?: string[] }): Promise<Card[]> {
+  const rows = await sql()`
+    select t.id, t.pulp_card_id, t.board_id, t.list_id, t.title, t.assignee, t.labels, t.created_at, t.request_id from tasks t
+    where t.client_id = ${clientId} and t.origin = 'hub' and t.request_id is not null and t.pulp_card_id is not null and t.board_id is not null
+      and t.notes is distinct from ${ARCHIVED}
+      and (${by.requestIds ?? null}::uuid[] is null or t.request_id = any(${by.requestIds ?? null}::uuid[]))
+      and (${by.taskIds ?? null}::uuid[] is null or t.id = any(${by.taskIds ?? null}::uuid[]))
+    order by t.created_at desc limit 40`;
+  return rows.map((t) => ({
+    taskId: String(t.id), cardId: String(t.pulp_card_id), boardId: String(t.board_id), listId: (t.list_id as string | null) ?? null, title: String(t.title),
+    assignee: (t.assignee as string | null) ?? null, labels: Array.isArray(t.labels) ? (t.labels as unknown[]).map(String) : [], createdAt: new Date(String(t.created_at)), description: "", ownRequestId: String(t.request_id),
   }));
 }
 
@@ -159,13 +177,22 @@ async function callsToday(): Promise<number> {
 export async function closeAsk(ask: Ask, card: Card, opts: { by: string; how: "link" | "title" | "model" | "person"; feed: boolean; line?: string }): Promise<boolean> {
   const facts = await cardFacts(card);
   const record = { madeInPulp: { taskId: card.taskId, cardId: card.cardId, boardId: card.boardId, title: card.title, link: facts.link, how: opts.how, was: ask.status } };
-  // The card first: a card that was tied to another ask a moment ago must not close this one.
-  const tie = await sql()`update tasks set request_id = ${ask.id} where id = ${card.taskId} and request_id is null returning id`;
-  if (!tie.length) return false;
-  const upd = await sql()`update requests set status = 'created', decided_by = ${opts.by}, decided_at = now(),
-      proposal = (coalesce(proposal, '{}'::jsonb) - 'matchAsk' - 'maybeCard') || ${JSON.stringify(record)}::jsonb
-    where id = ${ask.id} and status in ('proposed', 'expired') returning id`;
-  if (!upd.length) { await sql()`update tasks set request_id = null where id = ${card.taskId} and request_id = ${ask.id}`; return false; }
+  if (card.ownRequestId) {
+    // A card the hub made through Claude: the ask is folded into that card's own request. Nothing changes on the card.
+    if (card.ownRequestId === ask.id) return false;
+    const upd = await sql()`update requests set status = 'merged', merged_into = ${card.ownRequestId}, decided_by = ${opts.by}, decided_at = now(),
+        proposal = (coalesce(proposal, '{}'::jsonb) - 'matchAsk' - 'maybeCard' - 'likelyCard') || ${JSON.stringify(record)}::jsonb
+      where id = ${ask.id} and status in ('proposed', 'expired', 'dismissed') returning id`;
+    if (!upd.length) return false;
+  } else {
+    // The card first: a card that was tied to another ask a moment ago must not close this one.
+    const tie = await sql()`update tasks set request_id = ${ask.id} where id = ${card.taskId} and request_id is null returning id`;
+    if (!tie.length) return false;
+    const upd = await sql()`update requests set status = 'created', decided_by = ${opts.by}, decided_at = now(),
+        proposal = (coalesce(proposal, '{}'::jsonb) - 'matchAsk' - 'maybeCard' - 'likelyCard') || ${JSON.stringify(record)}::jsonb
+      where id = ${ask.id} and status in ('proposed', 'expired', 'dismissed') returning id`;
+    if (!upd.length) { await sql()`update tasks set request_id = null where id = ${card.taskId} and request_id = ${ask.id}`; return false; }
+  }
   if (!opts.feed || ask.status !== "proposed") return true;
   const bySystem = opts.by === MADE_IN_PULP;
   const text = opts.line ?? (bySystem ? closedLine({ who: whoTag(ask), askTitle: ask.title, card: facts }) : confirmedLine({ by: opts.by, askTitle: ask.title, card: facts }));
@@ -204,6 +231,12 @@ async function noteMaybe(ask: Ask, card: Card): Promise<void> {
   await sql()`update requests set proposal = coalesce(proposal, '{}'::jsonb) || ${JSON.stringify({ maybeCard: { taskId: card.taskId, cardId: card.cardId, title: card.title, link: facts.link } })}::jsonb where id = ${ask.id} and status = 'proposed'`;
 }
 
+/** An ask that is no longer open (expired, or answered "No card") and a card that is likely its card: the record says so, the feed is untouched. */
+async function noteLikely(ask: Ask, card: Card): Promise<void> {
+  const facts = await cardFacts(card);
+  await sql()`update requests set proposal = coalesce(proposal, '{}'::jsonb) || ${JSON.stringify({ likelyCard: { taskId: card.taskId, cardId: card.cardId, title: card.title, link: facts.link } })}::jsonb where id = ${ask.id} and status in ('expired', 'dismissed')`;
+}
+
 async function loadPair(requestId: string, taskId: string | null): Promise<{ ask: Ask; card: Card } | { ask: Ask | null; card: null }> {
   const r = await sql()`select client_id, coalesce(proposal->'matchAsk'->>'taskId', proposal->'maybeCard'->>'taskId') as task_id,
     coalesce(proposal->'matchAsk'->>'cardId', proposal->'maybeCard'->>'cardId') as card_id from requests where id = ${requestId}`;
@@ -216,6 +249,7 @@ async function loadPair(requestId: string, taskId: string | null): Promise<{ ask
   const t = tid ? await sql()`select pulp_card_id from tasks where id = ${tid} and request_id is null` : [];
   const cardId = t.length ? String(t[0].pulp_card_id) : (r[0].card_id as string | null);
   const card = cardId ? (await handMadeCards(clientId, { cardIds: [cardId], since: new Date(0), limit: 1 }))[0] ?? null : null;
+  if (!card && tid) { const hub = (await hubCards(clientId, { taskIds: [tid] }))[0] ?? null; if (hub) return { ask, card: hub }; }
   return card ? { ask, card } : { ask, card: null };
 }
 
@@ -244,10 +278,10 @@ export async function answerMatch(requestId: string, taskId: string | null, same
 
 /** "Not the same task" on a line the hub closed by itself: the ask is open again, with a fresh card, and that pair is never matched again. */
 export async function undoMatch(requestId: string, who: string): Promise<string> {
-  const r = await sql()`select proposal->'madeInPulp'->>'cardId' as card_id, proposal->'madeInPulp'->>'taskId' as task_id from requests where id = ${requestId} and status = 'created' and decided_by = ${MADE_IN_PULP}`;
+  const r = await sql()`select proposal->'madeInPulp'->>'cardId' as card_id, proposal->'madeInPulp'->>'taskId' as task_id from requests where id = ${requestId} and status in ('created', 'merged') and decided_by = ${MADE_IN_PULP}`;
   if (!r.length) return "That ask was already changed by someone.";
   await sql()`update tasks set request_id = null where request_id = ${requestId} and origin <> 'hub'`;
-  await sql()`update requests set status = 'proposed', decided_by = null, decided_at = null, proposal = coalesce(proposal, '{}'::jsonb) - 'madeInPulp' - 'cardName' where id = ${requestId}`;
+  await sql()`update requests set status = 'proposed', merged_into = null, decided_by = null, decided_at = null, proposal = coalesce(proposal, '{}'::jsonb) - 'madeInPulp' - 'cardName' where id = ${requestId}`;
   const { repostProposal } = await import("./proposal");
   try { await repostProposal(requestId); } catch (e) { await enqueue("post_proposal", { requestId }, 30); console.error("match: repost failed, queued", (e as Error).message); }
   // After the repost: storing a proposal rewrites its record.
@@ -258,16 +292,16 @@ export async function undoMatch(requestId: string, who: string): Promise<string>
 
 // ---- the judgement ----
 
-export interface MatchResult { asks: number; cards: number; closed: number; asked: number; noted: number; calls: number; capped?: boolean; /** what was tied to what, for the catch-up's record */ pairs: Array<{ ask: string; card: string; link: string; how: string; was: string }> }
+export interface MatchResult { asks: number; cards: number; closed: number; asked: number; noted: number; /** likely cards recorded on asks that are no longer open */ likely: number; /** the asks tied in this look */ tiedIds: string[]; /** the cards tied in this look */ tiedCards: number; calls: number; capped?: boolean; /** what was tied to what, for the catch-up's record */ pairs: Array<{ ask: string; card: string; link: string; how: string; was: string }> }
 
 /**
  * Compare these asks with these cards. Free proofs first; one model call for the rest, when there is a rest.
  * live: certain closes with the undo line, likely asks the person. catchup: certain links (an expired ask in the
  * record only), likely is noted for the 10:00 post, nothing is posted.
  */
-async function judge(clientName: string, asks: Ask[], cards: Card[], mode: "live" | "catchup", budget: { calls: number; cap: number }): Promise<MatchResult> {
-  const out: MatchResult = { asks: asks.length, cards: cards.length, closed: 0, asked: 0, noted: 0, calls: 0, pairs: [] };
-  const tied = (a: Ask, c: Card, how: string) => { out.closed++; out.pairs.push({ ask: a.title.slice(0, 90), card: c.title.slice(0, 90), link: linkOf(c), how, was: a.status }); };
+async function judge(clientName: string, asks: Ask[], cards: Card[], mode: "live" | "catchup" | "history", budget: { calls: number; cap: number }): Promise<MatchResult> {
+  const out: MatchResult = { asks: asks.length, cards: cards.length, closed: 0, asked: 0, noted: 0, likely: 0, tiedIds: [], tiedCards: 0, calls: 0, pairs: [] };
+  const tied = (a: Ask, c: Card, how: string) => { out.closed++; out.tiedIds.push(a.id); out.tiedCards++; out.pairs.push({ ask: a.title.slice(0, 90), card: c.title.slice(0, 90), link: linkOf(c), how, was: a.status }); };
   const openAsks = new Map(asks.map((a) => [a.id, a])), freeCards = new Map(cards.map((c) => [c.cardId, c]));
   for (const a of asks) {
     for (const c of freeCards.values()) {
@@ -286,7 +320,7 @@ async function judge(clientName: string, asks: Ask[], cards: Card[], mode: "live
   const askRows: AskForMatch[] = restAsks.map((a) => ({ title: a.title, words: a.words, day: dayOf(a.createdAt) }));
   const cardRows: CardForMatch[] = [];
   for (const c of restCards) cardRows.push({ title: c.title, list: await listName(c), assignee: c.assignee, labels: c.labels, day: dayOf(c.createdAt), description: c.description });
-  const matches = await judgeMatches({ clientName, asks: askRows, cards: cardRows, messageId: restAsks[0].messageId, step: mode === "catchup" ? "match_catchup" : "match" });
+  const matches = await judgeMatches({ clientName, asks: askRows, cards: cardRows, messageId: restAsks[0].messageId, step: mode === "live" ? "match" : "match_catchup" });
   out.calls++; budget.calls++;
   for (const m of matches) {
     const a = restAsks[m.ask], c = restCards[m.card];
@@ -296,18 +330,25 @@ async function judge(clientName: string, asks: Ask[], cards: Card[], mode: "live
       if (mode === "live") { if (await askPerson(a, c)) out.asked++; }
       else { await noteMaybe(a, c); out.noted++; }
     }
+    // Expired, or answered "No card": nobody is asked about a closed ask. The likely card goes on the record.
+    else { await noteLikely(a, c); out.likely++; }
   }
   return out;
 }
 
 // ---- triggers (each runs where Postgres is already open) ----
 
-/** From the board read, after it stored new cards or gave a card its client: queue a look for clients that have an ask waiting. */
+/**
+ * From the board read, after it stored new cards or gave a card its client: queue a look for clients that have an ask
+ * waiting, or one that expired or was answered "No card" in the last two weeks (the card is sometimes made after the tap;
+ * such an ask is tied in the record only, 2026-11-13).
+ */
 export async function queueCardMatch(found: Array<{ clientId: string; cardId: string; createdAt: string | null; description: string }>): Promise<number> {
   const fresh = found.filter((f) => f.clientId && f.createdAt && Date.now() - new Date(f.createdAt).getTime() < NEW_CARD_DAYS * DAY);
   if (!fresh.length) return 0;
   const clientIds = [...new Set(fresh.map((f) => f.clientId))];
-  const waiting = await sql()`select distinct client_id from requests where status = 'proposed' and kind = 'task' and client_id = any(${clientIds}::text[]) and created_at > now() - (${ASK_WINDOW_DAYS} || ' days')::interval`;
+  const waiting = await sql()`select distinct r.client_id from requests r where r.status in ('proposed', 'expired', 'dismissed') and r.kind = 'task' and r.client_id = any(${clientIds}::text[])
+    and r.created_at > now() - (${ASK_WINDOW_DAYS} || ' days')::interval and not exists (select 1 from tasks t where t.request_id = r.id)`;
   let queued = 0;
   for (const w of waiting) {
     const mine = fresh.filter((f) => f.clientId === String(w.client_id)).slice(0, 40);
@@ -327,13 +368,32 @@ export async function queueAskMatch(clientId: string | null, requestIds: string[
   return true;
 }
 
+/** From the pipeline, after cards were made through Claude: queue a look when that client has another ask still waiting for a tap. */
+export async function queueHubCardMatch(clientId: string | null, requestIds: string[]): Promise<boolean> {
+  if (!clientId || !requestIds.length) return false;
+  const any = await sql()`select 1 from requests r where r.client_id = ${clientId} and r.status = 'proposed' and r.kind = 'task' and r.id <> all(${requestIds}::uuid[])
+    and r.created_at > now() - (${ASK_WINDOW_DAYS} || ' days')::interval limit 1`;
+  if (!any.length) return false;
+  await enqueue("match_hub_cards", { clientId, requestIds }, 0);
+  return true;
+}
+
+/** Queue job: cards just made through Claude against the asks of that client still waiting in the feed. */
+export async function runMatchHubCards(payload: { clientId: string; requestIds: string[] }): Promise<MatchResult> {
+  const cards = await hubCards(payload.clientId, { requestIds: payload.requestIds });
+  const asks = cards.length
+    ? (await asksFor(payload.clientId, { statuses: ["proposed"], since: new Date(Date.now() - ASK_WINDOW_DAYS * DAY).toISOString(), limit: 40, newest: true })).filter((a) => !a.pending && !payload.requestIds.includes(a.id))
+    : [];
+  return judge(await clientName(payload.clientId), asks, cards, "live", { calls: await callsToday(), cap: matchDailyCap() });
+}
+
 async function clientName(clientId: string): Promise<string> {
   return (await allClients()).find((c) => c.id === clientId)?.name ?? clientId;
 }
 
 /** Queue job: new cards of one client against that client's waiting asks. */
 export async function runMatchCards(payload: { clientId: string; cards: Array<{ cardId: string; description?: string }> }): Promise<MatchResult> {
-  const asks = (await asksFor(payload.clientId, { statuses: ["proposed"], since: new Date(Date.now() - ASK_WINDOW_DAYS * DAY).toISOString(), limit: 30 })).filter((a) => !a.pending);
+  const asks = (await asksFor(payload.clientId, { statuses: ["proposed", "expired", "dismissed"], since: new Date(Date.now() - ASK_WINDOW_DAYS * DAY).toISOString(), limit: 40, newest: true })).filter((a) => !a.pending);
   const cards = asks.length ? await handMadeCards(payload.clientId, { cardIds: payload.cards.map((c) => c.cardId), since: new Date(0), limit: 40 }) : [];
   const desc = new Map(payload.cards.map((c) => [c.cardId, c.description ?? ""]));
   for (const c of cards) c.description = desc.get(c.cardId) ?? "";
@@ -343,7 +403,7 @@ export async function runMatchCards(payload: { clientId: string; cards: Array<{ 
 /** Queue job: a message's new asks against the cards the team made in the last few days. */
 export async function runMatchAsks(payload: { clientId: string; requestIds: string[] }): Promise<MatchResult> {
   const asks = (await asksFor(payload.clientId, { ids: payload.requestIds, statuses: ["proposed"], since: CATCHUP_SINCE, limit: 15 })).filter((a) => !a.pending);
-  if (!asks.length) return { asks: 0, cards: 0, closed: 0, asked: 0, noted: 0, calls: 0, pairs: [] };
+  if (!asks.length) return { asks: 0, cards: 0, closed: 0, asked: 0, noted: 0, likely: 0, tiedIds: [], tiedCards: 0, calls: 0, pairs: [] };
   const since = new Date(Math.min(...asks.map((a) => a.createdAt.getTime())) - CARD_DAYS_BEFORE_ASK * DAY);
   const cards = await handMadeCards(payload.clientId, { since, limit: 40 });
   return judge(await clientName(payload.clientId), asks, cards, "live", { calls: await callsToday(), cap: matchDailyCap() });
@@ -398,3 +458,83 @@ export async function runCatchUp(maxCalls = 5, maxMs = 25_000): Promise<CatchUp 
   else await enqueue("match_catchup", {}, 20);
   return st;
 }
+
+// ---- the whole history, once (2026-11-13) ----
+
+/**
+ * The first catch-up undercounted the past: it skipped every ask someone had answered "No card" (often tapped because
+ * the card was already made by hand), kept only certain matches for expired asks, and looked at the 50 cards nearest
+ * in time. This pass goes through every ask since proposals began that is expired or was answered "No card" and has
+ * no card of its own, against all of that client's hand-made cards from three days before to two weeks after, a page
+ * of 60 at a time. Certain: tied. Likely: `likelyCard` on the record. The feed is not touched.
+ */
+const HISTORY_KEY = "match_history";
+export const HISTORY_CALL_CAP = 500;
+const HISTORY_PAGE = 60;
+const HISTORY_MAX_PAGES = 8;
+interface History {
+  state: "running" | "done"; clients: string[] | null; cursor: { at: string; id: string } | null;
+  /** the group of asks being worked on, and how far through that client's cards it is */
+  chunk: { ids: string[]; from: string; to: string; offset: number; page: number; tail: { at: string; id: string } } | null;
+  calls: number; asks: number; tied: number; likely: number; tiedNoCard: number; startedAt: string; finishedAt?: string; pairs: MatchResult["pairs"];
+}
+
+/** Pure: the window of cards a group of asks is compared with. */
+export function historyWindow(asks: Array<Pick<Ask, "createdAt">>, daysAfter = 14): { from: Date; to: Date } {
+  const t = asks.map((a) => a.createdAt.getTime());
+  return { from: new Date(Math.min(...t) - CARD_DAYS_BEFORE_ASK * DAY), to: new Date(Math.max(...t) + daysAfter * DAY) };
+}
+
+export async function kickHistory(): Promise<boolean> {
+  const fresh: History = { state: "running", clients: null, cursor: null, chunk: null, calls: 0, asks: 0, tied: 0, likely: 0, tiedNoCard: 0, startedAt: new Date().toISOString(), pairs: [] };
+  const ins = await sql()`insert into settings (key, value) values (${HISTORY_KEY}, ${JSON.stringify(fresh)}::jsonb) on conflict (key) do nothing returning key`;
+  if (!ins.length) return false;
+  await enqueue("match_history", {}, 45);
+  return true;
+}
+
+/** Queue job: one page of cards per step, a few steps per run; the job queues itself until every client is done. */
+export async function runHistory(maxCalls = 5, maxMs = 25_000): Promise<History | null> {
+  const row = await sql()`select value from settings where key = ${HISTORY_KEY}`;
+  if (!row.length) return null;
+  const st = row[0].value as History;
+  if (st.state === "done") return st;
+  const started = Date.now();
+  const statuses = ["expired", "dismissed"];
+  if (st.clients === null) {
+    const c = await sql()`select distinct r.client_id from requests r where r.kind = 'task' and r.status = any(${statuses}::text[]) and r.client_id is not null and r.created_at >= ${CATCHUP_SINCE}::timestamptz
+      and not exists (select 1 from tasks t where t.request_id = r.id) order by r.client_id`;
+    st.clients = c.map((x) => String(x.client_id));
+  }
+  const save = async () => { await sql()`update settings set value = ${JSON.stringify(st)}::jsonb, updated_at = now() where key = ${HISTORY_KEY}`; };
+  let callsNow = 0;
+  while (st.clients.length && callsNow < maxCalls && Date.now() - started < maxMs && st.calls < HISTORY_CALL_CAP) {
+    const clientId = st.clients[0];
+    if (!st.chunk) {
+      const next = await asksFor(clientId, { statuses, since: CATCHUP_SINCE, after: st.cursor, limit: 8 });
+      if (!next.length) { st.clients.shift(); st.cursor = null; await save(); continue; }
+      const w = historyWindow(next);
+      const tail = next[next.length - 1];
+      st.chunk = { ids: next.map((a) => a.id), from: w.from.toISOString(), to: w.to.toISOString(), offset: 0, page: 0, tail: { at: tail.createdTxt, id: tail.id } };
+      st.asks += next.length;
+    }
+    const ch = st.chunk;
+    // Asks tied on an earlier page have left this list; cards tied earlier have left the card list, which the offset allows for.
+    const asks = await asksFor(clientId, { ids: ch.ids, statuses, since: CATCHUP_SINCE, limit: 8 });
+    const all = asks.length ? await handMadeCards(clientId, { since: new Date(ch.from), until: new Date(ch.to), limit: HISTORY_PAGE * HISTORY_MAX_PAGES + 200 }) : [];
+    const page = all.slice(ch.offset, ch.offset + HISTORY_PAGE);
+    if (!asks.length || !page.length || ch.page >= HISTORY_MAX_PAGES) { st.cursor = ch.tail; st.chunk = null; await save(); continue; }
+    const budget = { calls: st.calls, cap: HISTORY_CALL_CAP };
+    const r = await judge(await clientName(clientId), asks, page, "history", budget);
+    st.calls = budget.calls; callsNow += r.calls; st.tied += r.closed; st.likely += r.likely;
+    st.tiedNoCard += r.pairs.filter((p) => p.was === "dismissed").length;
+    st.pairs = [...st.pairs, ...r.pairs].slice(0, 60);
+    ch.offset += page.length - r.tiedCards; ch.page++;
+    if (r.capped) break;
+    await save();
+  }
+  if (!st.clients.length || st.calls >= HISTORY_CALL_CAP) { st.state = "done"; st.finishedAt = new Date().toISOString(); st.chunk = null; await save(); }
+  else { await save(); await enqueue("match_history", {}, 20); }
+  return st;
+}
+
