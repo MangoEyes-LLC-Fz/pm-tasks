@@ -107,6 +107,12 @@ describe("a team member's mail takes its client from who it was sent to (2026-11
   it("a recipient the hub knows from a client's Slack is that client", () => expect(clientFromRecipients(["fatima@hcmedspa.com", "new@hcmedspa.com"], people, cs)).toMatchObject({ client: { id: "hc" } }));
   it("an address that points nowhere is ignored next to one that does", () => expect(clientFromRecipients(["printer@gmail.com", "fatima@hcmedspa.com"], people, cs)).toMatchObject({ client: { id: "hc" } }));
   it("two clients among the recipients is not clarity", () => expect(clientFromRecipients(["fatima@hcmedspa.com", "x@abelamedical.co.uk"], people, cs)).toBeNull());
+  it("a recipient known only from their own mails (filed under one client) is that client", () => {
+    const senders = new Map([["faizali@other-company.com", "hc"], ["old@gone.com", "deleted-client"]]);
+    expect(clientFromRecipients(["Faizali@Other-Company.com"], people, cs, senders)).toMatchObject({ client: { id: "hc" } });
+    expect(clientFromRecipients(["faizali@other-company.com", "x@abelamedical.co.uk"], people, cs, senders)).toBeNull();
+    expect(clientFromRecipients(["old@gone.com"], people, cs, senders)).toBeNull();
+  });
   it("nobody known, nobody at all, or only the internal row gives nothing", () => {
     expect(clientFromRecipients(["someone@gmail.com"], people, cs)).toBeNull();
     expect(clientFromRecipients([], people, cs)).toBeNull();

@@ -27,7 +27,8 @@ mirrored so Claude can answer about all of them; the 10:00 India post names what
   failed card is reported and the day still counts.
 - **A mail finds its client from more than its sender** (1.8, `gmail.ts`, `resolve.ts`). A team member's mail: who it
   was sent to (To and Cc, one client among them). Any mail: the conversation it belongs to, when the earlier mails of
-  that thread are filed under one client. A sender outside the team: their own earlier mails. The mails of the last
+  that thread are filed under one client. A sender outside the team: their own earlier mails. A recipient of a team
+  mail is also recognised that way. The mails of the last
   14 days waiting on "which client?" are looked at again by the job `mail_recipients`, once after the deploy and
   after every client pick on a mail. `hub_status` shows `mailsWaitingOnClient14d` and `mail_client_rerun_last`.
 
@@ -85,7 +86,8 @@ hits Postgres as before.
 
 - The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"). Sheet: proven, the 12:30 UTC run read 16
   tabs with no errors (before: quota errors on six tabs every run). Mail: 10 mails waited on a client after the first
-  deploy; `mailsWaitingOnClient14d` and `mail_client_rerun_last` show the second look. Old asks in a conversation
+  deploy; the second look (12:44 UTC) filed 9 of 11 under Leicester MediSpa by their conversation and two asks from
+  them were proposed; the last two wait for the third step's look (`mailsWaitingOnClient14d` should read 0). Old asks in a conversation
   filed late (the Leicester MediSpa thread) may come up as proposals; the card match ties the ones already made.
   Ideas: Monday 16 Nov 10:00 India, one post of at most 25 cards and none on Tuesday.
 

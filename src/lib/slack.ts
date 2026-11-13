@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "./config";
 import { enqueue, sql } from "./db";
 import type { Client, Draft, Message, RouteDecision } from "./types";
-import { clientFromKnownPeople, clientFromRecipients } from "./resolve";
+import { clientFromKnownPeople } from "./resolve";
 
 // ---- one app, many workspaces: a token per team_id ----
 
@@ -105,12 +105,6 @@ export async function clientFromKnownEmail(email: string, clients: Client[]): Pr
 export async function knownClientPeople(): Promise<Array<{ email: string | null; teamId: string }>> {
   const people = await sql()`select team_id, email from slack_users where email is not null and not is_staff and not is_bot`;
   return people.map((p) => ({ email: p.email as string | null, teamId: String(p.team_id) }));
-}
-
-/** The one client a mail's recipients belong to (their domain in Config, or people seen in that client's Slack). */
-export async function clientFromRecipientEmails(addresses: string[], clients: Client[]): Promise<{ client: Client; how: string } | null> {
-  if (!addresses.length) return null;
-  return clientFromRecipients(addresses, await knownClientPeople(), clients);
 }
 
 export async function isStaffUser(teamId: string | null, userId: string): Promise<boolean> {

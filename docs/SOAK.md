@@ -120,8 +120,9 @@ The schedules did not change. What changed is that a quiet run does not open Pos
 ## Watch after the 2026-11-13 fixes
 
 - Sheet: `hub_status` → `sheet_sync_last.errors` empty on the runs after the deploy, with every client tab counted.
-- Mail: `hub_status.mailsWaitingOnClient14d` falls from 10 after the deploy and `mail_client_rerun_last` shows how
-  many were looked at and found; the waiting question cards read "Client found from …". The next mail a team member
+- Mail: proven in part, 13 Nov 12:44 UTC: 11 waiting mails looked at, 9 filed under Leicester MediSpa by their
+  conversation, `mailsWaitingOnClient14d` 10 → 2. The last two (team mails to a person known only from his own
+  mails) should go to 0 after the third step; the waiting question cards read "Client found from …". The next mail a team member
   sends to a client with the group in Cc, and the next reply in a conversation already filed, get no "which client?".
 - Ideas: Monday 16 Nov, 10:00 India: one ideas line, at most 25 cards, one closing line for the older ones, and no
   ideas post on Tuesday.
