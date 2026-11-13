@@ -127,6 +127,25 @@ export function clientFromKnownPeople(email: string, people: Array<{ email: stri
   return { client: clients.find((c) => c.id === [...owners][0])!, how: "known_domain" };
 }
 
+/**
+ * The one client the people a mail was sent to belong to (2026-11-13). A team member writing to a client, with the
+ * hub's group in Cc, names the client by who the mail goes to: an address on a client's domain (Config), or a person
+ * the hub knows from that client's Slack. Every address that points anywhere must point at the same client; two
+ * clients among the recipients is not clarity, and the hub asks as before.
+ */
+export function clientFromRecipients(addresses: string[], people: Array<{ email: string | null; teamId: string }>, clients: Client[]): { client: Client; how: string } | null {
+  const real = clients.filter((c) => c.scope === "client");
+  const found = new Map<string, Client>();
+  for (const raw of addresses) {
+    const a = raw.trim().toLowerCase();
+    const domain = a.split("@")[1];
+    if (!domain) continue;
+    const hit = real.find((c) => c.emailDomains.some((d) => domain === d || domain.endsWith("." + d))) ?? clientFromKnownPeople(a, people, real)?.client ?? null;
+    if (hit) found.set(hit.id, hit);
+  }
+  return found.size === 1 ? { client: [...found.values()][0], how: "recipients" } : null;
+}
+
 export function isNameOnly(text: string, client: Client): boolean {
   let t = text.toLowerCase();
   for (const n of [client.name, client.id, ...(client.aliases ?? [])].sort((a, b) => b.length - a.length)) t = t.replace(wholeWord(norm(n)), " ");

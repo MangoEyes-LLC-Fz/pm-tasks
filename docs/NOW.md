@@ -16,7 +16,20 @@ reminder, idea, rule or note; only a task is proposed, as a card in the feed thr
 their tap makes the Pulp card (To Do, assigned) and the PM Overview sheet row; every card on every department board is
 mirrored so Claude can answer about all of them; the 10:00 India post names what each person has to do today.
 
-## What changed on 2026-11-13
+## What changed on 2026-11-13 (second session: three faults fixed)
+
+- **The sheet mirror stays inside Google's read limit** (3.7, `sheets.ts`, `sheet-sync.ts`). A run was about 85
+  requests in a minute against a limit of 60, so the tabs last in the alphabet failed every ten minutes and the run
+  never settled. Now a run is two requests: the tab list and one `values.batchGet` for every client tab.
+- **Monday's ideas fit in one post** (4.8, `ideas.ts`, `morning.ts`). One card per undecided idea ever raised ran into
+  Chat's rate limit, the run failed without recording the day, and a partial ideas thread came back every weekday.
+  Now at most 25 cards, the newest of the last four weeks; the older ones stay on record with one closing line; a
+  failed card is reported and the day still counts.
+- **A team member's mail to a client finds its client** (1.8, `gmail.ts`, `resolve.ts`). The sender is staff, so the
+  hub now reads who the mail was sent to (To and Cc). One client among the recipients is the client. The team mails
+  of the last 14 days that were waiting on "which client?" are looked at once more by the job `mail_recipients`.
+
+## What changed on 2026-11-13 (first session)
 
 **Every way a card can be made now closes its ask, and the past is being brought into line** (3.12, `match.ts`,
 `pipeline.ts`). Three additions to the card match of 12 Nov:
@@ -67,6 +80,10 @@ post is due, or six hours have passed since an empty queue was confirmed. `/api/
 hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
+
+- The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"): `sheet_sync_last.errors` empty; the waiting
+  team mails turned into "Client found from who the mail was sent to" and processed, and the next such mail filed
+  with no question; Monday 16 Nov 10:00 India, one ideas post of at most 25 cards and none on Tuesday.
 
 - The history pass is done (13 Nov, 11:07 to 11:25 UTC): 658 asks that had expired or been answered "No card" and had
   no card of their own, 77 calls, about four cents. 2 more were tied for certain (both read by hand, both right),

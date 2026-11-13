@@ -69,3 +69,20 @@ describe("new-row colour", () => {
     expect(rowColour("yellow")).toBeNull();
   });
 });
+
+describe("the whole sheet in two reads (2026-11-13)", () => {
+  it("finds a client's tab among the tabs without asking Google again", async () => {
+    const { clientTabAmong } = await import("../src/lib/sheets");
+    const tabs = ["Config", "HC MedSpa", "MangoEyes - Leicester MediSpa", "Abela"];
+    expect(clientTabAmong({ id: "hc", name: "HC MedSpa", sheetTab: null }, tabs)).toBe("HC MedSpa");
+    expect(clientTabAmong({ id: "lms", name: "Leicester MediSpa", sheetTab: null }, tabs)).toBe("MangoEyes - Leicester MediSpa");
+    expect(clientTabAmong({ id: "x", name: "Other", sheetTab: "abela" }, tabs)).toBe("Abela");
+    expect(clientTabAmong({ id: "x", name: "Other", sheetTab: "Gone" }, tabs)).toBeNull();
+    expect(clientTabAmong({ id: "none", name: "No Tab Yet", sheetTab: null }, tabs)).toBeNull();
+  });
+  it("takes the header from the rows already read", async () => {
+    const { headersOf } = await import("../src/lib/sheets");
+    expect(headersOf([[" S. NO. ", "TASK"], ["1", "Footer"]])).toEqual(["S. NO.", "TASK"]);
+    expect(headersOf([])).toEqual([]);
+  });
+});

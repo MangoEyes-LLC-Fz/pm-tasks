@@ -1,6 +1,6 @@
 import { google, type gmail_v1 } from "googleapis";
 import { resolveClientFromText, stripClientPrefix } from "./resolve";
-import { clientFromKnownEmail } from "./slack";
+import { clientFromKnownEmail, clientFromRecipientEmails } from "./slack";
 import { emailNoise, splitQuotedHistory } from "./filter/noise";
 import { noise as noiseConfig } from "./config";
 import { allClients, enqueue, sql } from "./db";
@@ -84,7 +84,7 @@ export function bodyText(payload: gmail_v1.Schema$MessagePart | undefined): stri
 }
 
 export interface ParsedMail {
-  id: string; threadId: string; subject: string; from: string; fromEmail: string; to: string; date: Date;
+  id: string; threadId: string; subject: string; from: string; fromEmail: string; to: string; cc: string; date: Date;
   isForward: boolean; originalFrom: string | null; originalFromEmail: string | null; note: string; body: string;
   /** The earlier thread the sender replied to, quote marks removed, capped: context for the model, never the ask. */
   history: string; headers: Record<string, string>;
@@ -139,7 +139,7 @@ export function parseMail(raw: gmail_v1.Schema$Message): ParsedMail {
   body = stripSignature(split.latest);
   note = stripSignature(splitQuotedHistory(note).latest);
   return {
-    id: raw.id ?? "", threadId: raw.threadId ?? "", subject, from, fromEmail: emailOf(from), to: header(raw, "To"),
+    id: raw.id ?? "", threadId: raw.threadId ?? "", subject, from, fromEmail: emailOf(from), to: header(raw, "To"), cc: header(raw, "Cc"),
     date: raw.internalDate ? new Date(Number(raw.internalDate)) : new Date(),
     isForward, originalFrom, originalFromEmail: originalFrom ? emailOf(originalFrom) : null, note, body, history: split.history, headers,
   };
@@ -191,6 +191,36 @@ export async function markProcessed(id: string): Promise<void> {
 
 const staffDomains = () => (process.env.STAFF_EMAIL_DOMAINS ?? "mangoeyesagency.com").split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
 const isStaffEmail = (e: string) => staffDomains().some((d) => e.endsWith("@" + d));
+
+/** Pure: the addresses a mail went to that are neither the team's nor the hub's own. */
+export function outsideRecipients(lines: string): string[] {
+  const own = intakeAddresses();
+  const all = Array.from(lines.matchAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g), (m) => m[0].toLowerCase().replace(/[.>,;]+$/, ""));
+  return [...new Set(all)].filter((a) => !isStaffEmail(a) && !own.includes(a));
+}
+
+/**
+ * Once, after the deploy that taught the hub to read the recipients (queue job `mail_recipients`): team mails of the
+ * last two weeks still waiting on "which client?" are looked at again. Where the recipients name one client, the
+ * question card becomes one line and the mail is read as that client's.
+ */
+export async function rerunRecipientMails(): Promise<number> {
+  const rows = await sql()`select id, raw->'gmail'->>'to' as to_line, raw->'gmail'->>'cc' as cc_line from messages
+    where channel = 'email' and skip_reason = 'unknown_client' and sender_is_staff and created_at > now() - interval '14 days' order by created_at limit 60`;
+  if (!rows.length) return 0;
+  const clients = await allClients();
+  const { closeNeedsHumanCard } = await import("./review");
+  let n = 0;
+  for (const r of rows) {
+    const hit = await clientFromRecipientEmails(outsideRecipients(`${String(r.to_line ?? "")}, ${String(r.cc_line ?? "")}`), clients);
+    if (!hit) continue;
+    await sql()`update messages set client_id = ${hit.client.id}, scope = ${hit.client.scope}, skip_reason = null where id = ${r.id} and skip_reason = 'unknown_client'`;
+    await closeNeedsHumanCard(String(r.id), `👤 Client found from who the mail was sent to: ${hit.client.name}. Nothing to pick; the result follows in this thread.`);
+    await enqueue("process_message", { messageId: String(r.id) }, 0);
+    n++;
+  }
+  return n;
+}
 
 /** Attachments that are audio by type or name (WhatsApp voice notes shared to Gmail arrive as PTT-…, often octet-stream). */
 export function audioParts(payload: gmail_v1.Schema$MessagePart | undefined): Array<{ attachmentId: string; filename: string; mimeType: string }> {
@@ -246,6 +276,8 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
   const hit = resolveClientFromText(`${subjectClean}\n${mail.note}`, clients)
     ?? resolveClientFromText(senderEmail, clients)
     ?? (senderIsStaff ? null : await clientFromKnownEmail(senderEmail, clients))
+    // A team member writing to a client names the client by who the mail goes to (2026-11-13).
+    ?? (senderIsStaff ? await clientFromRecipientEmails(outsideRecipients(`${mail.to}, ${mail.cc}`), clients) : null)
     ?? resolveClientFromText(composed.slice(0, 400), clients);
   // A misheard name in a voice note is a suggestion on the "which client?" card, never a decision.
   const fuzzy = !hit && voice ? fuzzyClientFromText(composed.slice(0, 600), clients) : null;
@@ -255,7 +287,7 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
     text: hit ? stripClientPrefix(composed, hit.client) : composed,
     permalink: `https://mail.google.com/mail/u/0/#all/${mail.id}`, threadRef: mail.threadId,
     raw: {
-      gmail: { id: mail.id, messageId: rfcId, threadId: mail.threadId, subject: mail.subject, from: mail.from, to: mail.to, isForward: mail.isForward, originalFrom: mail.originalFrom },
+      gmail: { id: mail.id, messageId: rfcId, threadId: mail.threadId, subject: mail.subject, from: mail.from, to: mail.to, cc: mail.cc, isForward: mail.isForward, originalFrom: mail.originalFrom },
       ...(voice ? { voice: true } : {}),
       ...(fuzzy ? { suggestedClient: { id: fuzzy.client.id, name: fuzzy.client.name, heard: fuzzy.matched } } : {}),
     },

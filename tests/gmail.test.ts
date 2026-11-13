@@ -40,3 +40,17 @@ describe("signatures", () => {
     expect(q.startsWith("{") && q.trimEnd().endsWith("}")).toBe(true);
   });
 });
+
+describe("who a team mail was sent to (2026-11-13)", () => {
+  it("keeps the Cc line and leaves out the team and the hub's own addresses", async () => {
+    const { outsideRecipients } = await import("../src/lib/gmail");
+    process.env.GMAIL_INTAKE_ADDRESS = "taskhub@mangoeyesagency.com";
+    const raw = mail("Price list", "Anuj <anuj@mangoeyesagency.com>", "Hi Fatima, the new price list is attached.");
+    raw.payload.headers.push({ name: "Cc", value: "Client Success <clientsuccess.team@mangoeyesagency.com>, Kim <kim@hcmedspa.com>" });
+    raw.payload.headers[2].value = "Fatima Parpia <Fatima@hcmedspa.com>";
+    const p = parseMail(raw);
+    expect(p.cc).toContain("kim@hcmedspa.com");
+    expect(outsideRecipients(`${p.to}, ${p.cc}`)).toEqual(["fatima@hcmedspa.com", "kim@hcmedspa.com"]);
+    expect(outsideRecipients("taskhub@mangoeyesagency.com, , ")).toEqual([]);
+  });
+});

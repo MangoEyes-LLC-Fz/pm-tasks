@@ -29,3 +29,17 @@ describe("sheet dates", () => {
     expect(parseSheetDate("tbc")).toBeNull();
   });
 });
+
+describe("the sheet's fingerprint comes from one snapshot (2026-11-13)", () => {
+  it("is the same for the same rows, changes with a cell, and marks a tab that was not read", async () => {
+    const { clientTabsDigest } = await import("../src/lib/sheet-sync");
+    const clients = [{ id: "hc" }, { id: "lms" }, { id: "notab" }];
+    const tabOf = new Map<string, string | null>([["hc", "HC MedSpa"], ["lms", "Leicester"], ["notab", null]]);
+    const snap = (rows: Array<[string, string[][]]>) => ({ tabOf, rows: new Map(rows), errors: [] });
+    const a = clientTabsDigest(clients, snap([["HC MedSpa", [["TASK"], ["Footer"]]], ["Leicester", [["TASK"]]]]));
+    expect(clientTabsDigest(clients, snap([["Leicester", [["TASK"]]], ["HC MedSpa", [["TASK"], ["Footer"]]]]))).toBe(a);
+    expect(clientTabsDigest(clients, snap([["HC MedSpa", [["TASK"], ["Footer hours"]]], ["Leicester", [["TASK"]]]]))).not.toBe(a);
+    // A tab Google did not return this run must never look "unchanged" next to a run that read it.
+    expect(clientTabsDigest(clients, snap([["HC MedSpa", [["TASK"], ["Footer"]]]]))).not.toBe(a);
+  });
+});

@@ -41,7 +41,7 @@ export function ideasDue(now: Date, lastIdeasDay: string | null): boolean {
   return now.getTime() - new Date(lastIdeasDay + "T00:00:00Z").getTime() > 7 * 86_400_000;
 }
 
-export interface MorningReport { at: string; posted: boolean; headline: string | null; waiting: number; overdue: number; ideas: { posted: number; threadKey: string | null }; expired: number; errors: string[]; by: string }
+export interface MorningReport { at: string; posted: boolean; headline: string | null; waiting: number; overdue: number; ideas: { posted: number; threadKey: string | null; kept?: number; error?: string }; expired: number; errors: string[]; by: string }
 
 export const EXPIRE_AFTER_WORKING_DAYS = 5;
 /** Proposals made before the audit's rules went live (meeting follow-ups, group-addressed) close at the next run whatever their age. */
@@ -84,7 +84,10 @@ export async function runMorning(now = new Date(), opts: { by: string; forceIdea
     const last = await sql()`select value->>'day' as day from settings where key = ${IDEAS_KEY}`;
     if (opts.forceIdeas || ideasDue(now, last.length ? (last[0].day as string | null) : null)) {
       report.ideas = await postMondayIdeas(now);
-      if (report.ideas.posted) await sql()`insert into settings (key, value) values (${IDEAS_KEY}, ${JSON.stringify({ day: teamDay(now), posted: report.ideas.posted })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+      // The day is recorded once the headline is up (or there was nothing fresh to show), also when a card failed:
+      // a failed run must never repeat the whole post every morning, as it did until 2026-11-13.
+      if (report.ideas.error) report.errors.push(`ideas: ${report.ideas.error}`);
+      if (report.ideas.threadKey || report.ideas.kept) await sql()`insert into settings (key, value) values (${IDEAS_KEY}, ${JSON.stringify({ day: teamDay(now), posted: report.ideas.posted })}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
     }
   } catch (e) { report.errors.push(`ideas: ${(e as Error).message.slice(0, 200)}`); }
   try {

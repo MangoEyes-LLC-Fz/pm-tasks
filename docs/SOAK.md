@@ -117,6 +117,15 @@ Each fix: change, push, wait for the deploy, re-run the failed check. Record the
 
 The schedules did not change. What changed is that a quiet run does not open Postgres. After the deploy, on a stretch with no mail, no Drop message, no Slack event and no reminder due: Neon compute for project `delicate-king-60816111` should suspend (not sit at 0.25 CU). The tick JSON should say `idleCache: "on"`. `/api/health` should stay `ok: true` with `db.touched: false`. A real Drop message, a real mail, a real Slack event, and a reminder whose time has come should still land in the feed on the same schedules as before. `hub_status` should show poll times from the last few minutes, not from the last database write.
 
+## Watch after the 2026-11-13 fixes
+
+- Sheet: `hub_status` → `sheet_sync_last.errors` empty on the runs after the deploy, with every client tab counted.
+- Team mail: the next mail a team member sends to a client with the group in Cc is filed under that client with no
+  "which client?" card; the waiting ones from the last 14 days whose recipients name a client turn into one line
+  ("Client found from who the mail was sent to") and are processed.
+- Ideas: Monday 16 Nov, 10:00 India: one ideas line, at most 25 cards, one closing line for the older ones, and no
+  ideas post on Tuesday.
+
 ## Exit criteria for the soak
 
 - Every row in `docs/FEATURES.md` reads Live or Dropped. No row reads Built.

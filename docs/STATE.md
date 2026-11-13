@@ -15,6 +15,25 @@ Last updated: 2026-11-12 (Neon was awake all night because the crons and the hea
 
 ## Decisions finalised
 
+- **2026-11-13, three faults fixed at the root (Arun: "fix everything right now"):**
+  (1) *Sheet read quota.* `sheet_sync_last` showed "Quota exceeded … Read requests per minute per user" on the tabs
+  last in the alphabet, every ten minutes. Cause: the fingerprint read every client tab (tab list + rows, two requests
+  a client) and the mirror then read them all again (tab list + header + rows), about 85 requests in one minute
+  against Google's 60; with errors the fingerprint was never remembered, so the full run repeated every time. Now one
+  run is two requests: the tab list (kept two minutes) and one `values.batchGet` for every client tab
+  (`readClientTabs` in `sheet-sync.ts`, `tabsRows` in `sheets.ts`); the fingerprint and the mirror use the same rows.
+  On a quota error the run reports it and stops; on any other error it falls back tab by tab.
+  (2) *Monday's ideas.* The post made one card for every undecided idea ever raised; past about sixty Chat refused
+  the rest, the run threw, `ideas_last` was not written, and a partial ideas thread was posted again every weekday.
+  Now at most 25 cards (`IDEA_CARDS_MAX`), the newest of the last four weeks (`IDEA_FRESH_DAYS`), 300 ms apart; the
+  older ones stay on record and are named in one closing line; a failed card stops the run, is reported, and the day
+  is still recorded. Decided without asking because the alternative (sixty-plus cards) cannot be posted at all.
+  (3) *Team mails on "which client?".* A team member writing to a client with clientsuccess.team@ in Cc has a staff
+  sender, so the sender said nothing about the client. Now the recipients do (`clientFromRecipients` in `resolve.ts`,
+  `outsideRecipients` in `gmail.ts`): To and Cc without staff and intake addresses, each by Config domain or known
+  Slack person; exactly one client, else the hub asks as before. `raw.gmail.cc` is stored from now on. One-time job
+  `mail_recipients` (settings key `mail_recipients_rerun`, kicked when the schema applies) re-runs the waiting team
+  mails of the last 14 days whose recipients name one client and turns their question card into one line.
 - **2026-11-13, every way a card can be made, and the whole past (Arun: "a professional setup, nothing skipped"):**
   the 12 Nov catch-up tied 32 of 701 asks, and that undercounted the past. Arun named two scenarios: the card made by
   any other mode (by hand, another tool), and the card made through the Task Hub connector in Claude, both while the

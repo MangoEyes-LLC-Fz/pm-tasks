@@ -87,17 +87,23 @@ export function renderNote(template: string, vars: { who?: string; when?: string
 // ---- tabs, headers, rows ----
 
 const tabMetaCache = new Map<string, { id: number; at: number }>();
-async function tabMeta(): Promise<Array<{ title: string; id: number }>> {
+// The list of tabs is asked for once and kept two minutes: until 2026-11-13 every "which tab is this client's?" was a
+// request of its own, one per client per run, and with the rows that put a single mirror run past Google's limit of
+// 60 reads a minute (the tabs last in the alphabet failed every ten minutes).
+let tabListCache: { list: Array<{ title: string; id: number }>; at: number } | null = null;
+async function tabMeta(fresh = false): Promise<Array<{ title: string; id: number }>> {
+  if (!fresh && tabListCache && Date.now() - tabListCache.at < 2 * 60 * 1000) return tabListCache.list;
   const res = await sheets().spreadsheets.get({ spreadsheetId: sheetId(), fields: "sheets.properties(title,sheetId)" });
   const list = (res.data.sheets ?? []).map((s) => ({ title: s.properties?.title ?? "", id: s.properties?.sheetId ?? 0 })).filter((t) => t.title);
   for (const t of list) tabMetaCache.set(t.title, { id: t.id, at: Date.now() });
+  tabListCache = { list, at: Date.now() };
   return list;
 }
 export async function listTabs(): Promise<string[]> { return (await tabMeta()).map((t) => t.title); }
 async function tabNumericId(tab: string): Promise<number> {
   const hit = tabMetaCache.get(tab);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.id;
-  const t = (await tabMeta()).find((x) => x.title === tab);
+  const t = (await tabMeta()).find((x) => x.title === tab) ?? (await tabMeta(true)).find((x) => x.title === tab);
   if (!t) throw new Error(`tab "${tab}" not found`);
   return t.id;
 }
@@ -115,7 +121,11 @@ export async function tabHeaders(tab: string): Promise<string[]> {
 
 /** The client's tab: explicit sheet_tab from Config, else exact/case-insensitive/prefix match on the client name. */
 export async function findClientTab(client: Client | null): Promise<string | null> {
-  const tabs = await listTabs();
+  return clientTabAmong(client, await listTabs());
+}
+
+/** Pure: the client's tab among the sheet's tabs. */
+export function clientTabAmong(client: Pick<Client, "id" | "name" | "sheetTab"> | null, tabs: string[]): string | null {
   const key = (s: string) => s.trim().toLowerCase();
   if (client?.sheetTab) return tabs.find((t) => key(t) === key(client.sheetTab!)) ?? null;
   const wanted = [client?.name ?? "MangoEyes", client?.id ?? "internal"].map(key);
@@ -128,6 +138,28 @@ export async function findClientTab(client: Client | null): Promise<string | nul
 export async function tabRows(tab: string): Promise<string[][]> {
   const res = await sheets().spreadsheets.values.get({ spreadsheetId: sheetId(), range: `'${tab}'!A1:Z2000` });
   return (res.data.values ?? []).map((r) => r.map((v) => String(v ?? "")));
+}
+
+/** Pure: a tab's header cells, from its rows. */
+export function headersOf(rows: string[][]): string[] {
+  return (rows[sheetConfig().header_row - 1] ?? []).map((v) => String(v ?? "").trim());
+}
+
+/**
+ * The whole used area of many tabs in ONE request (values.batchGet): one read against Google's per-minute limit,
+ * however many tabs. The header cache is filled from the same answer, so no header is asked for separately.
+ */
+export async function tabsRows(tabs: string[]): Promise<Map<string, string[][]>> {
+  const out = new Map<string, string[][]>();
+  if (!tabs.length) return out;
+  const res = await sheets().spreadsheets.values.batchGet({ spreadsheetId: sheetId(), ranges: tabs.map((t) => `'${t.replace(/'/g, "''")}'!A1:Z2000`) });
+  const got = res.data.valueRanges ?? [];
+  tabs.forEach((t, i) => {
+    const rows = (got[i]?.values ?? []).map((r) => r.map((v) => String(v ?? "")));
+    out.set(t, rows);
+    if (rows.length) headerCache.set(t, { headers: headersOf(rows), at: Date.now() });
+  });
+  return out;
 }
 
 /**

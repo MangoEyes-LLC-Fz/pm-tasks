@@ -215,6 +215,8 @@ alter table requests add column if not exists proposal jsonb;                   
 -- Settings key match_catchup holds the one-time catch-up's progress; llm_calls.step 'match' is its model cost.
 -- 2026-11-13: the whole history, once (settings key match_history): asks that expired or were answered "No card" are
 -- tied when certain, and requests.proposal gains likelyCard {taskId, cardId, title, link} when a card is likely theirs.
+-- 2026-11-13: a team member's mail to a client takes its client from the recipients; settings key
+-- mail_recipients_rerun marks the one-time second look at the mails that were waiting on "which client?".
 create index if not exists tasks_request on tasks (request_id) where request_id is not null;
 
 -- "Remind me on Friday": to the person who asked, at that time, every morning until Done.

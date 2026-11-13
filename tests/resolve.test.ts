@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveClientFromText, stripClientPrefix, clientFromKnownPeople } from "../src/lib/resolve";
+import { resolveClientFromText, stripClientPrefix, clientFromKnownPeople, clientFromRecipients } from "../src/lib/resolve";
 import type { Client } from "../src/lib/types";
 
 const c = (id: string, name: string, extra: Partial<Client> = {}): Client => ({
@@ -95,3 +95,21 @@ describe("a mail sender the hub knows from a client's Slack (2026-09-30)", () =>
   });
 });
 
+
+describe("a team member's mail takes its client from who it was sent to (2026-11-13)", () => {
+  const cs = [
+    c("hc", "HC MedSpa", { slackTeamId: "T_HC" }),
+    c("abela", "Abela", { emailDomains: ["abelamedical.co.uk"] }),
+    c("internal", "MangoEyes internal", { scope: "internal", emailDomains: ["mangoeyesagency.com"] }),
+  ];
+  const people = [{ email: "fatima@hcmedspa.com", teamId: "T_HC" }];
+  it("a recipient on a client's domain is that client", () => expect(clientFromRecipients(["Dr.Ali@AbelaMedical.co.uk"], people, cs)).toMatchObject({ client: { id: "abela" }, how: "recipients" }));
+  it("a recipient the hub knows from a client's Slack is that client", () => expect(clientFromRecipients(["fatima@hcmedspa.com", "new@hcmedspa.com"], people, cs)).toMatchObject({ client: { id: "hc" } }));
+  it("an address that points nowhere is ignored next to one that does", () => expect(clientFromRecipients(["printer@gmail.com", "fatima@hcmedspa.com"], people, cs)).toMatchObject({ client: { id: "hc" } }));
+  it("two clients among the recipients is not clarity", () => expect(clientFromRecipients(["fatima@hcmedspa.com", "x@abelamedical.co.uk"], people, cs)).toBeNull());
+  it("nobody known, nobody at all, or only the internal row gives nothing", () => {
+    expect(clientFromRecipients(["someone@gmail.com"], people, cs)).toBeNull();
+    expect(clientFromRecipients([], people, cs)).toBeNull();
+    expect(clientFromRecipients(["anuj@mangoeyesagency.com"], people, cs)).toBeNull();
+  });
+});

@@ -29,7 +29,10 @@ export async function GET(req: Request) {
     if (r.applied) {
       report.schema = r;
       // Postgres is open: the one-time look at asks that already have a card starts here, once (match.ts).
-      try { const { kickCatchUp, kickHistory } = await import("@/lib/match"); if (await kickCatchUp()) report.matchCatchUp = "started"; if (await kickHistory()) report.matchHistory = "started"; } catch (e) { report.matchCatchUp = { error: (e as Error).message }; }
+      try { const { kickCatchUp, kickHistory } = await import("@/lib/match"); if (await kickCatchUp()) report.matchCatchUp = "started"; if (await kickHistory()) report.matchHistory = "started"; }
+      catch (e) { report.matchCatchUp = { error: (e as Error).message }; }
+      // Team mails still waiting on "which client?" are looked at once more, now that the recipients are read (gmail.ts).
+      try { const ins = await sql()`insert into settings (key, value) values ('mail_recipients_rerun', ${JSON.stringify({ at: new Date().toISOString() })}::jsonb) on conflict (key) do nothing returning key`; if (ins.length) await enqueue("mail_recipients", {}, 60); } catch { /* the next schema change tries again */ }
     }
   }
   catch (e) { report.schema = { error: (e as Error).message }; }
@@ -55,14 +58,16 @@ export async function GET(req: Request) {
   // 1a. Sheet → hub mirror every 10 minutes. The tabs are read from Google; the database is written only when a tab changed.
   if (sheetsConfigured() && configClients && new Date().getMinutes() % 10 === 0) {
     try {
-      const { syncSheet, clientTabsDigest } = await import("@/lib/sheet-sync");
-      const digest = await clientTabsDigest(configClients);
+      const { syncSheet, clientTabsDigest, readClientTabs } = await import("@/lib/sheet-sync");
+      // Two requests to Google for the whole sheet; the same rows serve the fingerprint and, when it changed, the mirror.
+      const snap = await readClientTabs(configClients);
+      const digest = clientTabsDigest(configClients, snap);
       const prev = await sheetDigestCached();
       if (prev.shared && prev.value === digest) {
         report.sheetSync = { unchanged: true };
         await noteBeat("sheet_sync", { at: new Date().toISOString(), unchanged: true, errors: [] });
       } else {
-        const r = await syncSheet();
+        const r = await syncSheet(null, snap);
         const summary = { tabs: Object.keys(r.tabs).length, imported: Object.values(r.tabs).reduce((a, t) => a + t.imported, 0), errors: r.errors };
         report.sheetSync = summary;
         if (!r.errors.length) { await rememberSheetDigest(digest); await dropWatch("sheet"); }
@@ -424,6 +429,11 @@ async function runJob(kind: string, payload: Record<string, unknown>) {
     case "match_asks": {
       const { runMatchAsks } = await import("@/lib/match");
       await runMatchAsks(payload as { clientId: string; requestIds: string[] });
+      return;
+    }
+    case "mail_recipients": {
+      const { rerunRecipientMails } = await import("@/lib/gmail");
+      await rerunRecipientMails();
       return;
     }
     case "match_hub_cards": {

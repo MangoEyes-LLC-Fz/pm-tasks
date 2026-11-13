@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { sql, allClients } from "./db";
-import { findClientTab, tabHeaders, tabRows, mapHeaders, sheetConfig, sheetsConfigured, dividerIndex, updateTaskCells } from "./sheets";
+import { findClientTab, clientTabAmong, listTabs, tabHeaders, tabRows, tabsRows, headersOf, mapHeaders, sheetConfig, sheetsConfigured, dividerIndex, updateTaskCells } from "./sheets";
 import { normList } from "./pulp";
 
 /**
@@ -73,12 +73,13 @@ function departmentKey(label: string): string | null {
 interface Row { key: string; cardId: string | null; boardId: string | null; title: string; priority: string; assignee: string | null; due: string | null; status: string | null; dept: string | null; notes: string | null; sheetRow: number; created: string; completed: string | null }
 
 /** Mirror one client's tab. Two sheet reads and four database statements, whatever the row count. */
-export async function syncClientTab(client: { id: string; name: string; sheetTab?: string | null }, tab: string): Promise<{ rows: number; imported: number; updated: number; hubRows: number; removed: number }> {
+export async function syncClientTab(client: { id: string; name: string; sheetTab?: string | null }, tab: string, given?: string[][]): Promise<{ rows: number; imported: number; updated: number; hubRows: number; removed: number }> {
   const cfg = sheetConfig();
-  const headers = await tabHeaders(tab);
+  // Rows read for the whole run in one request carry the header too: no read of its own for this tab.
+  const headers = given ? headersOf(given) : await tabHeaders(tab);
   const map = mapHeaders(headers, cfg);
   if (map.title === undefined) throw new Error(`${tab}: no TASK column`);
-  const rows = await tabRows(tab);
+  const rows = given ?? await tabRows(tab);
   const divider = dividerIndex(rows, map, cfg);
   const cell = (r: string[], f: string) => (map[f] !== undefined ? (r[map[f]] ?? "").trim() : "");
   const parsed: Row[] = [];
@@ -179,32 +180,65 @@ export async function syncClientTab(client: { id: string; name: string; sheetTab
   return { rows: parsed.length, imported: ins.length, updated: upd.length, hubRows: parsed.length - mine.length, removed };
 }
 
-/** A fingerprint of every client tab. The minute loop skips the database mirror when this has not changed. */
-export async function clientTabsDigest(clients: Awaited<ReturnType<typeof allClients>>): Promise<string> {
+/** Every client's tab and its rows, as read at one moment. */
+export interface TabSnapshot { tabOf: Map<string, string | null>; rows: Map<string, string[][]>; errors: string[] }
+
+/**
+ * Two reads for the whole sheet, however many clients: the list of tabs, then every client tab's rows in one request.
+ * Until 2026-11-13 the fingerprint read every tab (two requests a client) and the mirror then read them all again
+ * (three a client): about 85 requests in one minute against Google's limit of 60, so the tabs last in the alphabet
+ * failed on every run and their clients' rows went stale.
+ */
+export async function readClientTabs(clients: Array<{ id: string; name: string; sheetTab?: string | null }>): Promise<TabSnapshot> {
+  const tabs = await listTabs();
+  const tabOf = new Map(clients.map((c) => [c.id, clientTabAmong(c, tabs)]));
+  const names = [...new Set([...tabOf.values()].filter((t): t is string => !!t))];
+  const errors: string[] = [];
+  let rows = new Map<string, string[][]>();
+  try { rows = await tabsRows(names); }
+  catch (e) {
+    const msg = (e as Error).message;
+    // Over the limit: more requests would only make it worse; this run reports it and the next one reads again.
+    if (/quota|rate limit|429/i.test(msg)) { errors.push(`sheet read: ${msg.slice(0, 160)}`); return { tabOf, rows, errors }; }
+    // Anything else (one range Google will not take): tab by tab, so one bad tab does not lose the others.
+    for (const t of names) { try { rows.set(t, await tabRows(t)); } catch (x) { errors.push(`${t}: ${(x as Error).message.slice(0, 160)}`); } }
+  }
+  return { tabOf, rows, errors };
+}
+
+/** Pure: a fingerprint of every client tab. The minute loop skips the database mirror when this has not changed. */
+export function clientTabsDigest(clients: Array<{ id: string }>, snap: TabSnapshot): string {
   const parts: string[] = [];
   for (const client of clients) {
-    const tab = await findClientTab(client);
+    const tab = snap.tabOf.get(client.id) ?? null;
     if (!tab) { parts.push(`${client.id}\tnone`); continue; }
-    const rows = await tabRows(tab);
-    parts.push(`${tab}\t${createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 20)}`);
+    const rows = snap.rows.get(tab);
+    parts.push(`${tab}\t${rows ? createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 20) : "unread"}`);
   }
   return parts.sort().join("\n");
 }
 
 /** All clients (or one, by id). Progress is saved per tab so a timeout still leaves a readable report. */
-export async function syncSheet(onlyClientId?: string | null): Promise<SyncReport> {
+export async function syncSheet(onlyClientId?: string | null, given?: TabSnapshot): Promise<SyncReport> {
   const report: SyncReport = { tabs: {}, errors: [], at: new Date().toISOString() };
   if (!sheetsConfigured()) { report.errors.push("sheets not configured"); return report; }
   const clients = (await allClients()).filter((c) => !onlyClientId || c.id === onlyClientId);
   // Rows keyed the old way (card:<id>, before keys were per tab) are re-keyed once so they are updated, not duplicated.
   try { await sql()`update tasks set sheet_key = 'card:' || sheet_tab || ':' || substr(sheet_key, 6) where origin = 'sheet' and sheet_key like 'card:%' and sheet_key not like 'card:%:%' and sheet_tab is not null`; } catch { /* ignore */ }
   const save = async () => { try { await sql()`insert into settings (key, value) values ('sheet_sync_last', ${JSON.stringify(report)}::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`; } catch { /* ignore */ } };
+  // One snapshot of the sheet for the whole run (two reads), the minute loop's own when it already took one.
+  let snap = given;
+  if (!snap) { try { snap = await readClientTabs(clients); } catch (e) { report.errors.push(`sheet read: ${(e as Error).message.slice(0, 160)}`); await save(); return report; } }
+  report.errors.push(...snap.errors);
   for (const client of clients) {
     let tab: string | null = null;
     try {
-      tab = await findClientTab(client);
+      // A client the snapshot did not cover (added between the two steps) is looked up on its own.
+      tab = snap.tabOf.has(client.id) ? snap.tabOf.get(client.id) ?? null : await findClientTab(client);
       if (!tab) continue;
-      report.tabs[tab] = await syncClientTab(client, tab);
+      const rows = snap.rows.get(tab);
+      if (!rows && snap.tabOf.has(client.id)) continue; // not read this run (reported above); its rows stay as they are
+      report.tabs[tab] = await syncClientTab(client, tab, rows);
     } catch (e) { report.errors.push(`${tab ?? client.name}: ${(e as Error).message.slice(0, 160)}`); }
     await save();
   }
