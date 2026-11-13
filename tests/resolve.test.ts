@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveClientFromText, stripClientPrefix, clientFromKnownPeople, clientFromRecipients } from "../src/lib/resolve";
+import { resolveClientFromText, stripClientPrefix, clientFromKnownPeople, clientFromRecipients, oneClient } from "../src/lib/resolve";
 import type { Client } from "../src/lib/types";
 
 const c = (id: string, name: string, extra: Partial<Client> = {}): Client => ({
@@ -111,5 +111,16 @@ describe("a team member's mail takes its client from who it was sent to (2026-11
     expect(clientFromRecipients(["someone@gmail.com"], people, cs)).toBeNull();
     expect(clientFromRecipients([], people, cs)).toBeNull();
     expect(clientFromRecipients(["anuj@mangoeyesagency.com"], people, cs)).toBeNull();
+  });
+});
+
+describe("a mail takes the client its conversation already has (2026-11-13)", () => {
+  const cs = [c("lms", "Leicester MediSpa"), c("hc", "HC MedSpa"), c("internal", "MangoEyes internal", { scope: "internal" })];
+  it("one client across the earlier mails is the client", () => expect(oneClient(["lms", "lms"], cs, "mail_thread")).toMatchObject({ client: { id: "lms" }, how: "mail_thread" }));
+  it("two clients, none, the internal row or an unknown id is not clarity", () => {
+    expect(oneClient(["lms", "hc"], cs, "mail_thread")).toBeNull();
+    expect(oneClient([], cs, "mail_thread")).toBeNull();
+    expect(oneClient(["internal"], cs, "mail_thread")).toBeNull();
+    expect(oneClient(["gone"], cs, "mail_thread")).toBeNull();
   });
 });

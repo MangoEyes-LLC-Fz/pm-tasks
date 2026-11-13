@@ -146,6 +146,14 @@ export function clientFromRecipients(addresses: string[], people: Array<{ email:
   return found.size === 1 ? { client: [...found.values()][0], how: "recipients" } : null;
 }
 
+/** Pure: the client a set of ids agrees on. One real client is clarity; none, two, or the internal row is not. */
+export function oneClient(ids: string[], clients: Client[], how: string): { client: Client; how: string } | null {
+  const distinct = [...new Set(ids)];
+  if (distinct.length !== 1) return null;
+  const client = clients.find((c) => c.id === distinct[0] && c.scope === "client");
+  return client ? { client, how } : null;
+}
+
 export function isNameOnly(text: string, client: Client): boolean {
   let t = text.toLowerCase();
   for (const n of [client.name, client.id, ...(client.aliases ?? [])].sort((a, b) => b.length - a.length)) t = t.replace(wholeWord(norm(n)), " ");

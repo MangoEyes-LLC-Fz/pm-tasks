@@ -1,6 +1,6 @@
 import { google, type gmail_v1 } from "googleapis";
-import { resolveClientFromText, stripClientPrefix } from "./resolve";
-import { clientFromKnownEmail, clientFromRecipientEmails } from "./slack";
+import { resolveClientFromText, stripClientPrefix, clientFromRecipients, oneClient } from "./resolve";
+import { clientFromKnownEmail, clientFromRecipientEmails, knownClientPeople } from "./slack";
 import { emailNoise, splitQuotedHistory } from "./filter/noise";
 import { noise as noiseConfig } from "./config";
 import { allClients, enqueue, sql } from "./db";
@@ -9,7 +9,7 @@ import { processMessage } from "./pipeline";
 import { postAck, humanOutcome } from "./review";
 import { transcribeAudio, isAudio, sniffAudio, startLongTranscription, hintPhrases } from "./transcribe";
 import { fuzzyClientFromText } from "./resolve";
-import type { Message } from "./types";
+import type { Message, Client } from "./types";
 
 /**
  * Email intake: one mailbox (intake@mangoeyesagency.com), read every minute through the service account with
@@ -200,26 +200,62 @@ export function outsideRecipients(lines: string): string[] {
 }
 
 /**
- * Once, after the deploy that taught the hub to read the recipients (queue job `mail_recipients`): team mails of the
- * last two weeks still waiting on "which client?" are looked at again. Where the recipients name one client, the
- * question card becomes one line and the mail is read as that client's.
+ * The client of a mail that names none itself, from what the hub already filed (2026-11-13):
+ * its thread (every mail of the conversation already filed belongs to one client), or, for someone outside the team,
+ * their own earlier mails (two or more, all filed under one client). A client's person writing from another
+ * company's address is asked about once, not on every mail.
  */
-export async function rerunRecipientMails(): Promise<number> {
-  const rows = await sql()`select id, raw->'gmail'->>'to' as to_line, raw->'gmail'->>'cc' as cc_line from messages
-    where channel = 'email' and skip_reason = 'unknown_client' and sender_is_staff and created_at > now() - interval '14 days' order by created_at limit 60`;
-  if (!rows.length) return 0;
-  const clients = await allClients();
-  const { closeNeedsHumanCard } = await import("./review");
-  let n = 0;
-  for (const r of rows) {
-    const hit = await clientFromRecipientEmails(outsideRecipients(`${String(r.to_line ?? "")}, ${String(r.cc_line ?? "")}`), clients);
-    if (!hit) continue;
-    await sql()`update messages set client_id = ${hit.client.id}, scope = ${hit.client.scope}, skip_reason = null where id = ${r.id} and skip_reason = 'unknown_client'`;
-    await closeNeedsHumanCard(String(r.id), `👤 Client found from who the mail was sent to: ${hit.client.name}. Nothing to pick; the result follows in this thread.`);
-    await enqueue("process_message", { messageId: String(r.id) }, 0);
-    n++;
+export async function clientFromMailHistory(o: { threadId: string | null; senderEmail: string; senderIsStaff: boolean }, clients: Client[]): Promise<{ client: Client; how: string } | null> {
+  if (o.threadId) {
+    const t = await sql()`select distinct client_id from messages where channel = 'email' and thread_ref = ${o.threadId} and client_id is not null and scope = 'client'`;
+    if (t.length) return oneClient(t.map((r) => String(r.client_id)), clients, "mail_thread");
   }
-  return n;
+  if (o.senderIsStaff || !o.senderEmail.includes("@")) return null;
+  const s = await sql()`select client_id, count(*)::int as n from messages where channel = 'email' and not sender_is_staff and client_id is not null and scope = 'client'
+    and position(${"<" + o.senderEmail + ">"} in lower(sender)) > 0 and created_at > now() - interval '180 days' group by client_id`;
+  return s.length === 1 && Number(s[0].n) >= 2 ? oneClient([String(s[0].client_id)], clients, "past_sender") : null;
+}
+
+const FOUND_BY: Record<string, string> = { recipients: "who the mail was sent to", mail_thread: "the earlier mails of the same conversation", past_sender: "the sender's earlier mails" };
+
+/**
+ * A second look at the mails of the last two weeks still waiting on "which client?" (queue job `mail_recipients`):
+ * once after the deploy that taught the hub to read recipients, threads and earlier mails, and again whenever someone
+ * picks the client of a mail, so the rest of that conversation follows the pick. Where a client is now clear, the
+ * question card becomes one line and the mail is read as that client's. The result is kept in settings
+ * `mail_client_rerun_last` and shown by hub_status.
+ */
+export async function rerunWaitingMails(): Promise<{ looked: number; found: number }> {
+  const rows = await sql()`select id, sender, sender_is_staff, thread_ref, raw->'gmail'->>'to' as to_line, raw->'gmail'->>'cc' as cc_line from messages
+    where channel = 'email' and skip_reason = 'unknown_client' and client_id is null and created_at > now() - interval '14 days' order by created_at limit 60`;
+  let found = 0;
+  if (rows.length) {
+    const clients = await allClients();
+    const people = await knownClientPeople();
+    const { closeNeedsHumanCard } = await import("./review");
+    // Oldest first: a mail filed by its thread counts for the same sender's later mails.
+    for (const r of rows) {
+      const staff = !!r.sender_is_staff;
+      const hit = (staff ? clientFromRecipients(outsideRecipients(`${String(r.to_line ?? "")}, ${String(r.cc_line ?? "")}`), people, clients) : null)
+        ?? await clientFromMailHistory({ threadId: (r.thread_ref as string | null) ?? null, senderEmail: emailOf(String(r.sender)), senderIsStaff: staff }, clients);
+      if (!hit) continue;
+      const done = await sql()`update messages set client_id = ${hit.client.id}, scope = ${hit.client.scope}, skip_reason = null where id = ${r.id} and skip_reason = 'unknown_client' returning id`;
+      if (!done.length) continue;
+      await closeNeedsHumanCard(String(r.id), `👤 Client found from ${FOUND_BY[hit.how] ?? "the mail"}: ${hit.client.name}. Nothing to pick; the result follows in this thread.`);
+      await enqueue("process_message", { messageId: String(r.id) }, 0);
+      found++;
+    }
+  }
+  const result = { looked: rows.length, found };
+  await sql()`insert into settings (key, value) values ('mail_client_rerun_last', ${JSON.stringify({ at: new Date().toISOString(), ...result })}::jsonb)
+    on conflict (key) do update set value = excluded.value`;
+  return result;
+}
+
+/** After someone picked the client of a mail: the other waiting mails of that conversation are looked at again. */
+export async function afterMailClientPick(messageId: string): Promise<void> {
+  const r = await sql()`select 1 from messages where id = ${messageId} and channel = 'email' limit 1`;
+  if (r.length) await enqueue("mail_recipients", {}, 15);
 }
 
 /** Attachments that are audio by type or name (WhatsApp voice notes shared to Gmail arrive as PTT-…, often octet-stream). */
@@ -278,6 +314,8 @@ export async function ingestMail(raw: gmail_v1.Schema$Message): Promise<string> 
     ?? (senderIsStaff ? null : await clientFromKnownEmail(senderEmail, clients))
     // A team member writing to a client names the client by who the mail goes to (2026-11-13).
     ?? (senderIsStaff ? await clientFromRecipientEmails(outsideRecipients(`${mail.to}, ${mail.cc}`), clients) : null)
+    // The conversation it belongs to, or the sender's own earlier mails, when those are already filed under one client.
+    ?? await clientFromMailHistory({ threadId: mail.threadId, senderEmail, senderIsStaff }, clients)
     ?? resolveClientFromText(composed.slice(0, 400), clients);
   // A misheard name in a voice note is a suggestion on the "which client?" card, never a decision.
   const fuzzy = !hit && voice ? fuzzyClientFromText(composed.slice(0, 600), clients) : null;

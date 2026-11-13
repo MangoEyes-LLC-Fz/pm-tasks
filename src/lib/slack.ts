@@ -101,11 +101,16 @@ export async function clientFromKnownEmail(email: string, clients: Client[]): Pr
   return clientFromKnownPeople(email, people.map((p) => ({ email: p.email as string | null, teamId: String(p.team_id) })), clients);
 }
 
-/** The one client a mail's recipients belong to (their domain in Config, or people seen in that client's Slack). One read for the whole list. */
+/** The client people the hub knows from Slack, for looking up several mail addresses with one read. */
+export async function knownClientPeople(): Promise<Array<{ email: string | null; teamId: string }>> {
+  const people = await sql()`select team_id, email from slack_users where email is not null and not is_staff and not is_bot`;
+  return people.map((p) => ({ email: p.email as string | null, teamId: String(p.team_id) }));
+}
+
+/** The one client a mail's recipients belong to (their domain in Config, or people seen in that client's Slack). */
 export async function clientFromRecipientEmails(addresses: string[], clients: Client[]): Promise<{ client: Client; how: string } | null> {
   if (!addresses.length) return null;
-  const people = await sql()`select team_id, email from slack_users where email is not null and not is_staff and not is_bot`;
-  return clientFromRecipients(addresses, people.map((p) => ({ email: p.email as string | null, teamId: String(p.team_id) })), clients);
+  return clientFromRecipients(addresses, await knownClientPeople(), clients);
 }
 
 export async function isStaffUser(teamId: string | null, userId: string): Promise<boolean> {

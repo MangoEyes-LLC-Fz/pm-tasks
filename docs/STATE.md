@@ -32,8 +32,17 @@ Last updated: 2026-11-12 (Neon was awake all night because the crons and the hea
   sender, so the sender said nothing about the client. Now the recipients do (`clientFromRecipients` in `resolve.ts`,
   `outsideRecipients` in `gmail.ts`): To and Cc without staff and intake addresses, each by Config domain or known
   Slack person; exactly one client, else the hub asks as before. `raw.gmail.cc` is stored from now on. One-time job
-  `mail_recipients` (settings key `mail_recipients_rerun`, kicked when the schema applies) re-runs the waiting team
-  mails of the last 14 days whose recipients name one client and turns their question card into one line.
+  `mail_recipients` re-runs the waiting mails of the last 14 days where a client is now clear and turns their
+  question card into one line.
+  *Second step, same day.* After the first deploy 10 mails still waited: one Leicester MediSpa conversation ("Jaishri -
+  Clinic 08/10") where the client's owner writes from another company's address (sav-eco.com) and the team replies to
+  him; older rows had no Cc stored. Added `clientFromMailHistory` (`gmail.ts`): the mail's Gmail thread when every
+  filed mail of it belongs to one client (`mail_thread`), else, for a sender outside the team, their own earlier mails
+  when two or more are all filed under one client (`past_sender`). Order of the chain: subject/note prefix → sender
+  domain → known Slack person → recipients (team mail) → thread → sender's earlier mails → first lines of the text.
+  The job now covers client mails too, runs again after a client pick on a mail (`afterMailClientPick`), is kicked
+  once under settings key `mail_client_rerun_2`, and writes its counts to `mail_client_rerun_last`; `hub_status`
+  shows them and `mailsWaitingOnClient14d`.
 - **2026-11-13, every way a card can be made, and the whole past (Arun: "a professional setup, nothing skipped"):**
   the 12 Nov catch-up tied 32 of 701 asks, and that undercounted the past. Arun named two scenarios: the card made by
   any other mode (by hand, another tool), and the card made through the Task Hub connector in Claude, both while the

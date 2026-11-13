@@ -25,9 +25,11 @@ mirrored so Claude can answer about all of them; the 10:00 India post names what
   Chat's rate limit, the run failed without recording the day, and a partial ideas thread came back every weekday.
   Now at most 25 cards, the newest of the last four weeks; the older ones stay on record with one closing line; a
   failed card is reported and the day still counts.
-- **A team member's mail to a client finds its client** (1.8, `gmail.ts`, `resolve.ts`). The sender is staff, so the
-  hub now reads who the mail was sent to (To and Cc). One client among the recipients is the client. The team mails
-  of the last 14 days that were waiting on "which client?" are looked at once more by the job `mail_recipients`.
+- **A mail finds its client from more than its sender** (1.8, `gmail.ts`, `resolve.ts`). A team member's mail: who it
+  was sent to (To and Cc, one client among them). Any mail: the conversation it belongs to, when the earlier mails of
+  that thread are filed under one client. A sender outside the team: their own earlier mails. The mails of the last
+  14 days waiting on "which client?" are looked at again by the job `mail_recipients`, once after the deploy and
+  after every client pick on a mail. `hub_status` shows `mailsWaitingOnClient14d` and `mail_client_rerun_last`.
 
 ## What changed on 2026-11-13 (first session)
 
@@ -81,9 +83,11 @@ hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
 
-- The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"): `sheet_sync_last.errors` empty; the waiting
-  team mails turned into "Client found from who the mail was sent to" and processed, and the next such mail filed
-  with no question; Monday 16 Nov 10:00 India, one ideas post of at most 25 cards and none on Tuesday.
+- The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"). Sheet: proven, the 12:30 UTC run read 16
+  tabs with no errors (before: quota errors on six tabs every run). Mail: 10 mails waited on a client after the first
+  deploy; `mailsWaitingOnClient14d` and `mail_client_rerun_last` show the second look. Old asks in a conversation
+  filed late (the Leicester MediSpa thread) may come up as proposals; the card match ties the ones already made.
+  Ideas: Monday 16 Nov 10:00 India, one post of at most 25 cards and none on Tuesday.
 
 - The history pass is done (13 Nov, 11:07 to 11:25 UTC): 658 asks that had expired or been answered "No card" and had
   no card of their own, 77 calls, about four cents. 2 more were tied for certain (both read by hand, both right),

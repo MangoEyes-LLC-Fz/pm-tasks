@@ -9,6 +9,7 @@ import { resolveClientFromText } from "@/lib/resolve";
 import { postAck, humanOutcome, threadTopic, closeNeedsHumanCard, type ThreadTopic } from "@/lib/review";
 import { handleIntakeMessage } from "@/lib/chat-intake";
 import { reprocessSoon } from "@/lib/reprocess";
+import { afterMailClientPick } from "@/lib/gmail";
 import { acknowledgeReplies, ACK_WORDS } from "@/lib/slack-replies";
 import { decideProposal, answerProposal } from "@/lib/proposal";
 import { markReminderDone, moveReminder } from "@/lib/reminders";
@@ -103,6 +104,7 @@ async function answerThread(topic: ThreadTopic, text: string, who: string, whoUs
     if (hit) {
       await sql()`update messages set client_id = ${hit.client.id}, scope = ${hit.client.scope}, skip_reason = null where id = ${topic.messageId}`;
       await learnWorkspace(topic.messageId, hit.client);
+      await afterMailClientPick(topic.messageId);
       reprocessSoon(topic.messageId, waitUntil);
       await closeNeedsHumanCard(topic.messageId, `👤 Client set to ${hit.client.name} by ${who}; processing.`);
       return `👤 Client set to ${hit.client.name} by ${who}; processing.`;
@@ -208,6 +210,7 @@ async function handleCardClick(ev: NormalisedEvent) {
         const c = (await allClients()).find((x) => x.id === clientId);
         await sql()`update messages set client_id = ${clientId}, scope = ${c?.scope ?? "client"}, skip_reason = null where id = ${p.messageId}`;
         if (c) await learnWorkspace(p.messageId, c);
+        if (c) await afterMailClientPick(p.messageId);
         reprocessSoon(p.messageId, waitUntil);
         return done(`👤 Client set to ${c?.name ?? clientId} by ${who}; processing.`);
       }

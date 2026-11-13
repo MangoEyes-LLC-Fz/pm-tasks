@@ -32,7 +32,7 @@ export async function GET(req: Request) {
       try { const { kickCatchUp, kickHistory } = await import("@/lib/match"); if (await kickCatchUp()) report.matchCatchUp = "started"; if (await kickHistory()) report.matchHistory = "started"; }
       catch (e) { report.matchCatchUp = { error: (e as Error).message }; }
       // Team mails still waiting on "which client?" are looked at once more, now that the recipients are read (gmail.ts).
-      try { const ins = await sql()`insert into settings (key, value) values ('mail_recipients_rerun', ${JSON.stringify({ at: new Date().toISOString() })}::jsonb) on conflict (key) do nothing returning key`; if (ins.length) await enqueue("mail_recipients", {}, 60); } catch { /* the next schema change tries again */ }
+      try { const ins = await sql()`insert into settings (key, value) values ('mail_client_rerun_2', ${JSON.stringify({ at: new Date().toISOString() })}::jsonb) on conflict (key) do nothing returning key`; if (ins.length) await enqueue("mail_recipients", {}, 60); } catch { /* the next schema change tries again */ }
     }
   }
   catch (e) { report.schema = { error: (e as Error).message }; }
@@ -432,8 +432,8 @@ async function runJob(kind: string, payload: Record<string, unknown>) {
       return;
     }
     case "mail_recipients": {
-      const { rerunRecipientMails } = await import("@/lib/gmail");
-      await rerunRecipientMails();
+      const { rerunWaitingMails } = await import("@/lib/gmail");
+      await rerunWaitingMails();
       return;
     }
     case "match_hub_cards": {
