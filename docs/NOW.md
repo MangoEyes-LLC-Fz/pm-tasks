@@ -1,6 +1,6 @@
 # Where the hub is today
 
-**Updated 2026-11-13.** This page is the first thing a new session reads: what is live, what
+**Updated 2026-11-16.** This page is the first thing a new session reads: what is live, what
 changed last, what is being watched, what waits on Arun, and how to see the live hub. It is rewritten at the end of
 every working session; the history behind every line is in `docs/STATE.md` (dated decisions) and `git log`.
 
@@ -83,6 +83,11 @@ post is due, or six hours have passed since an empty queue was confirmed. `/api/
 hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
+
+- Checked 16 Nov, 12:30 UTC: every poll current, no queue errors, no stuck messages. Sheet: 16 tabs, no errors.
+  Mail: none waiting on a client. Monday's ideas: 25 cards posted, 116 kept on record, no errors; the last thing to
+  see is no ideas post on Tuesday 17 Nov. The card match's question was answered in the feed by a person that
+  morning ("No, different"), so the live question path works on real traffic. The 10:00 post listed 98 waiting.
 
 - The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"). Sheet: proven, the 12:30 UTC run read 16
   tabs with no errors (before: quota errors on six tabs every run). Mail: 10 mails waited on a client after the first
