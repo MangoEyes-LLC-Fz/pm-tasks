@@ -16,6 +16,14 @@ Last updated: 2026-11-16 (outside Monday to Friday 11:00 to 22:30 IST the three 
 ## Decisions finalised
 
 - **2026-11-16, the database may suspend outside work hours:** The 12 Nov quiet path still opened Postgres on every cron (schema check, Pulp poll, reminders, heartbeat), so Neon never got five idle minutes and the Launch compute stayed at 0.25 CU day and night, about $20 a month. Decided: Monday to Friday 11:00 to 22:30 IST (05:30 to 17:00 UTC) the three crons behave exactly as they do now. Outside that window, including all of Saturday and Sunday, `/api/tick`, `/api/inbox-tick` and `/api/meet-tick` return before any Postgres call and before any runtime-cache read that falls back to Postgres, except when the UTC minute is :00, :15, :30 or :45. `/api/eod` is unchanged (04:30 UTC, Monday to Friday, 10:00 IST). That minute is outside the new work window, and so is the Gmail daily requeue (`getUTCHours() === 4 && getUTCMinutes() >= 30`). Both still run: eod is its own cron, and the tick still enters at 04:30 and 04:45 UTC, which is the requeue and the first catch-up after 10:05 IST. Reminders due inside work hours still post on the minute. A reminder, a Drop message, a mail or a meeting note outside work hours waits at most 15 minutes. The window is `src/lib/quiet-hours.ts`. `QUIET_START_UTC` and `QUIET_END_UTC` (`HH:MM`, default `17:00` and `05:30`) move the clock. Weekends stay outside either way. Health and the 10:00 brief allow a heartbeat of 20 minutes outside work hours, so a 15-minute gap is not reported as a stopped reader. Expected saving: about two-fifths of the compute, roughly $8 a month off the $20, because a query every 15 minutes lets Neon suspend for about ten minutes of each quarter-hour.
+- **2026-11-16, a read tool for asks nobody picked up (Arun: "is there any client demand which is not touched?"):**
+  the existing tools showed only proposals still waiting; an ask that expired after five working days with nobody
+  deciding was visible nowhere. Added `asks_without_card` (`asksWithoutCard` in `hub.ts`): task asks with status
+  `proposed` or `expired` and no task row, per client and window, with `likelyCard` from the card match; "No card"
+  answers only on request, because a person decided those. Read only, no model call, nothing posted. Built without
+  a separate go because the check Arun asked for could not be made without it. `client_summary` carries the same
+  list for the last 60 days (`asksWithoutCard60d`): a session that connected before a deploy keeps its old tool list
+  and cannot call a tool added after it, but it can call the tools it already knows.
 - **2026-11-13, three faults fixed at the root (Arun: "fix everything right now"):**
   (1) *Sheet read quota.* `sheet_sync_last` showed "Quota exceeded … Read requests per minute per user" on the tabs
   last in the alphabet, every ten minutes. Cause: the fingerprint read every client tab (tab list + rows, two requests

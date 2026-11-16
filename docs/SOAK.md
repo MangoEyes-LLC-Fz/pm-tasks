@@ -128,8 +128,8 @@ Monday to Friday 11:00 to 22:30 IST, nothing about the schedule changes. Outside
   conversation, `mailsWaitingOnClient14d` 10 → 2. The last two (team mails to a person known only from his own
   mails) were filed by the third step's look at 16:15 UTC: `mailsWaitingOnClient14d` 0, queue clean. Still to see: the waiting question cards read "Client found from …". The next mail a team member
   sends to a client with the group in Cc, and the next reply in a conversation already filed, get no "which client?".
-- Ideas: Monday 16 Nov, 10:00 India: one ideas line, at most 25 cards, one closing line for the older ones, and no
-  ideas post on Tuesday.
+- Ideas: proven Monday 16 Nov, 10:00 India (`eod_last.ideas`): 25 cards posted, 116 older ideas kept on record, no
+  errors, the day recorded. Still to see: no ideas post on Tuesday 17 Nov.
 
 ## Exit criteria for the soak
 

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { verifyMcpKey, type McpKeyOwner } from "@/lib/mcp-keys";
 import { allClients, sql } from "@/lib/db";
 import { allBeats, overlayPolls } from "@/lib/idle";
-import { searchTasks, taskDetail, clientSummary, recentMessages, dailySummaryText, listMeetings, meetingDetail, listItems } from "@/lib/hub";
+import { searchTasks, taskDetail, clientSummary, recentMessages, dailySummaryText, listMeetings, meetingDetail, listItems, asksWithoutCard } from "@/lib/hub";
 import { processMessage } from "@/lib/pipeline";
 import { humanOutcome } from "@/lib/review";
 import type { Message } from "@/lib/types";
@@ -50,13 +50,24 @@ function buildHandler(owner: McpKeyOwner) {
         }),
       }, async (a) => text(await searchTasks(a)));
 
+      server.registerTool("asks_without_card", {
+        title: "Asks without a card",
+        description: "Client asks the hub recognised as tasks that have no card: still waiting for a decision in the feed, or closed after five working days because nobody decided. Use it for 'what did the client ask that nobody picked up?'. Counts per client cover the whole window; the list gives each ask with its date, who sent it, the source link and the feed thread. likelyCard means the hub thinks a hand-made card covers it but is not sure. includeNoCard also lists asks a person answered with No card. days default 30, or from/to.",
+        inputSchema: z.object({
+          client: z.string().optional().describe("Client name, id or alias; leave out for all clients"),
+          ...window,
+          includeNoCard: z.boolean().optional().describe("also list asks a person answered with No card"),
+          limit: z.number().int().positive().max(300).optional(),
+        }),
+      }, async (a) => text(await asksWithoutCard(a)));
+
       server.registerTool("task_detail", {
         title: "Task detail", description: "Everything about one task: the original message, who asked, approval, status history, card link. Pass the task id (or its first 8 characters) or the Pulp card id.",
         inputSchema: z.object({ id: z.string() }),
       }, async ({ id }) => text((await taskDetail(id)) ?? { error: "no such task" }));
 
       server.registerTool("client_summary", {
-        title: "Client summary", description: "One client at a glance: open, staging, overdue, waiting-on-client, done in 30 days, message volume, and the open task list.",
+        title: "Client summary", description: "One client at a glance: open, staging, overdue, waiting-on-client, done in 30 days, message volume, what the client asked in the last 60 days that has no card (asksWithoutCard60d), and the open task list.",
         inputSchema: z.object({ client: z.string() }),
       }, async ({ client }) => text((await clientSummary(client)) ?? { error: "no such client" }));
 
@@ -168,7 +179,7 @@ function buildHandler(owner: McpKeyOwner) {
     },
     {
       serverInfo: { name: "mangoeyes-task-hub", version: "1.0.0" },
-      instructions: `You are connected to the MangoEyes Task Hub. This connection is shared by several people, so you do not know who is talking to you. Clients are aesthetic clinics; tasks live on Pulp department boards and in the PM Overview sheet; every card on those boards is known here with its list, labels, assignee and due date (a card with no client label or client name in its title has client null: search by words without a client). Use search_tasks / client_summary for status questions, task_detail to read the original ask, daily_summary for "what happened today", meetings / meeting_detail for "what happened in the last call with X", ideas and decisions for what was raised or agreed, from/to (YYYY-MM-DD) on any of these for "what happened on 12 March" or "between 1 and 15 March", add_request to create a card for a client ask: it is made at once in Pulp with the details decided in this chat, and the feed shows the outcome. Reading needs nothing. Before add_request, ask the person "Who is this request from?" and wait for their answer (never fill in a name yourself, not from this connection's owner, not from earlier context), then ask which client, what was asked, and who it should be assigned to (the names come from the people tool). Department, priority and due date only if the person says them; otherwise the hub decides.`,
+      instructions: `You are connected to the MangoEyes Task Hub. This connection is shared by several people, so you do not know who is talking to you. Clients are aesthetic clinics; tasks live on Pulp department boards and in the PM Overview sheet; every card on those boards is known here with its list, labels, assignee and due date (a card with no client label or client name in its title has client null: search by words without a client). Use search_tasks / client_summary for status questions, asks_without_card for what a client asked that has no card yet, task_detail to read the original ask, daily_summary for "what happened today", meetings / meeting_detail for "what happened in the last call with X", ideas and decisions for what was raised or agreed, from/to (YYYY-MM-DD) on any of these for "what happened on 12 March" or "between 1 and 15 March", add_request to create a card for a client ask: it is made at once in Pulp with the details decided in this chat, and the feed shows the outcome. Reading needs nothing. Before add_request, ask the person "Who is this request from?" and wait for their answer (never fill in a name yourself, not from this connection's owner, not from earlier context), then ask which client, what was asked, and who it should be assigned to (the names come from the people tool). Department, priority and due date only if the person says them; otherwise the hub decides.`,
     },
   );
 }

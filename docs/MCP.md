@@ -41,6 +41,7 @@ codex mcp add task-hub --url https://pm-tasks.vercel.app/api/mcp/mh_YOUR_KEY
 |---|---|
 | `list_clients` | clients, short names, sheet tabs |
 | `search_tasks` | by client, status (open/done/overdue/waiting/staging/all), department, words, days or from/to |
+| `asks_without_card` | what a client asked that has no card: waiting for a decision, or nobody decided in five working days; per client counts and the list, days or from/to |
 | `task_detail` | one task: original ask, who, approval, status history, card link |
 | `client_summary` | one client at a glance: counts + open list |
 | `recent_messages` | what came in, by client/channel, incl. updates that were not tasks |

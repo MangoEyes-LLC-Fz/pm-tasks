@@ -142,6 +142,71 @@ export async function searchTasks(q: TaskQuery): Promise<TaskRow[]> {
   return out;
 }
 
+/** Pure: what became of an ask that has no card, in the team's words. */
+export function askState(status: string, decidedBy: string | null): string {
+  if (status === "proposed") return "waiting for a decision";
+  if (status === "expired") return "nobody decided (closed after five working days)";
+  const who = (decidedBy ?? "").replace(/^(gchat|claude|slack):/, "").trim();
+  return who && !who.startsWith("system") ? `No card, decided by ${who}` : "No card";
+}
+
+export interface AskRow {
+  id: string; client: string | null; title: string; ask: string; askedOn: string; from: string; fromTeam: boolean; channel: string | null;
+  state: string; sourceLink: string | null; feedThread: string | null; likelyCard: { title: string | null; link: string | null } | null;
+}
+
+/**
+ * Client asks the hub recognised as tasks that have no card (2026-11-16, Arun: "is there any client demand which is
+ * not touched?"): still waiting for a tap, or closed after five working days with nobody deciding. An ask the card
+ * match tied to a hand-made card has a card and is not here; one it only thinks has a card carries `likelyCard`.
+ * "No card" answers are a person's decision and are listed only when asked for. Counts cover the whole window;
+ * the list is capped by `limit`.
+ */
+export async function asksWithoutCard(q: Window & { client?: string | null; includeNoCard?: boolean; limit?: number | null }) {
+  const clientId = await resolveClientId(q.client);
+  if (q.client && !clientId) return { error: "no such client" };
+  const { since, until } = windowBounds(q, 30);
+  const limit = Math.min(Math.max(q.limit ?? 100, 1), 300);
+  const statuses = q.includeNoCard ? ["proposed", "expired", "dismissed"] : ["proposed", "expired"];
+  const counts = await sql()`
+    select coalesce(c.name, 'Unknown') as client,
+           count(*) filter (where r.status = 'proposed')::int as waiting,
+           count(*) filter (where r.status = 'expired')::int as nobody_decided,
+           count(*) filter (where r.status = 'dismissed')::int as no_card,
+           count(*) filter (where coalesce(r.proposal->'likelyCard', r.proposal->'maybeCard') is not null)::int as likely_has_card
+    from requests r left join clients c on c.id = r.client_id
+    where r.kind = 'task' and r.status = any(${statuses}::text[]) and not exists (select 1 from tasks t where t.request_id = r.id)
+      and (${clientId}::text is null and r.scope = 'client' or r.client_id = ${clientId})
+      and (${since}::timestamptz is null or r.created_at >= ${since}::timestamptz) and (${until}::timestamptz is null or r.created_at < ${until}::timestamptz)
+    group by 1 order by 1`;
+  const rows = await sql()`
+    select r.id, c.name as client, r.status, r.decided_by, r.draft->>'title' as title, left(coalesce(r.quote, r.summary, ''), 240) as words, r.created_at,
+           m.channel, m.sender, m.sender_is_staff, m.permalink, r.proposal->>'thread' as thread, coalesce(r.proposal->'likelyCard', r.proposal->'maybeCard') as likely
+    from requests r join messages m on m.id = r.message_id left join clients c on c.id = r.client_id
+    where r.kind = 'task' and r.status = any(${statuses}::text[]) and not exists (select 1 from tasks t where t.request_id = r.id)
+      and (${clientId}::text is null and r.scope = 'client' or r.client_id = ${clientId})
+      and (${since}::timestamptz is null or r.created_at >= ${since}::timestamptz) and (${until}::timestamptz is null or r.created_at < ${until}::timestamptz)
+    order by c.name nulls last, r.created_at limit ${limit}`;
+  const { threadUrl } = await import("./review");
+  const asks: AskRow[] = rows.map((r) => {
+    const likely = r.likely as { title?: string; link?: string } | null;
+    return {
+      id: String(r.id), client: (r.client as string | null) ?? null, title: String(r.title ?? ""), ask: String(r.words ?? ""),
+      askedOn: new Date(r.created_at as string).toISOString(), from: String(r.sender ?? "").replace(/\s*<[^>]+>\s*$/, ""), fromTeam: !!r.sender_is_staff,
+      channel: (r.channel as string | null) ?? null, state: askState(String(r.status), (r.decided_by as string | null) ?? null),
+      sourceLink: (r.permalink as string | null) ?? null, feedThread: threadUrl(r.thread as string | null),
+      likelyCard: likely ? { title: likely.title ?? null, link: likely.link ?? null } : null,
+    };
+  });
+  const sum = (k: string) => counts.reduce((a, c) => a + Number(c[k] ?? 0), 0);
+  return {
+    window: windowLabel(q, 30),
+    totals: { waiting: sum("waiting"), nobodyDecided: sum("nobody_decided"), ...(q.includeNoCard ? { noCard: sum("no_card") } : {}), likelyHasCard: sum("likely_has_card") },
+    byClient: counts.map((c) => ({ client: c.client, waiting: c.waiting, nobodyDecided: c.nobody_decided, ...(q.includeNoCard ? { noCard: c.no_card } : {}), likelyHasCard: c.likely_has_card })),
+    listed: asks.length, asks,
+  };
+}
+
 export async function taskDetail(ref: string): Promise<Record<string, unknown> | null> {
   const r = ref.trim();
   const rows = await sql()`
@@ -182,7 +247,9 @@ export async function clientSummary(ref: string): Promise<Record<string, unknown
            count(*) filter (where skip_reason = 'no_ask' and created_at > now() - interval '7 days')::int as updates_no_task_last_7_days
     from messages where client_id = ${id} and created_at > now() - interval '30 days'`)[0];
   const open = await searchTasks({ client: id, status: "open", limit: 25 });
-  return { client: { id: c.id, name: c.name, scope: c.scope, aliases: c.aliases ?? [], sheetTab: c.sheetTab ?? null }, ...counts, ...msgs, openTasks: open };
+  // What the client asked that has no card, last 60 days (2026-11-16): the summary of a client must not hide it.
+  const noCard = await asksWithoutCard({ client: id, days: 60, limit: 150 });
+  return { client: { id: c.id, name: c.name, scope: c.scope, aliases: c.aliases ?? [], sheetTab: c.sheetTab ?? null }, ...counts, ...msgs, asksWithoutCard60d: noCard, openTasks: open };
 }
 
 export async function recentMessages(q: Window & { client?: string | null; channel?: string | null; limit?: number | null; includeSkipped?: boolean }) {
