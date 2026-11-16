@@ -20,7 +20,12 @@ mirrored so Claude can answer about all of them; the 10:00 India post names what
 
 - **`asks_without_card`, a new read tool in Claude** (5.3, `hub.ts`): what a client asked that has no card, per
   client and window: still waiting for a decision, or closed after five working days with nobody deciding. Made to
-  answer Arun's question about October and November; the result of that check is in the chat of that day.
+  answer Arun's question about October and November. `client_summary` carries the same list for 60 days.
+  Result of the check, 16 Nov: 521 task asks since 1 Oct have no card of their own or tied to them (75 still waiting,
+  446 closed with nobody deciding; 75 of the 521 carry a likely card). 201 were sent by clients themselves, 228 by
+  the team in its own mails, 92 came from meeting notes. By client: The SKIN Firm 129, House Of Health 103, HC MedSpa
+  86, Leicester MediSpa 81, The Eye Doctor 70, Abela 28, Dr Tanov 24; eight clients have none recorded. "No card" is
+  not "not done": work done without a card, or under one broad card, is not visible to the hub. Arun has the list.
 
 ## What changed on 2026-11-13 (second session: three faults fixed)
 
