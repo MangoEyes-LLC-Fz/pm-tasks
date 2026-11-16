@@ -31,3 +31,13 @@ describe("look-back windows on the reading tools", () => {
     expect(windowLabel({}, 1)).toBe("today");
   });
 });
+
+describe("an ask without a card, in the team's words (2026-11-16)", () => {
+  it("says whether it still waits, nobody decided, or a person said No card", async () => {
+    const { askState } = await import("../src/lib/hub");
+    expect(askState("proposed", null)).toBe("waiting for a decision");
+    expect(askState("expired", "system:expired")).toBe("nobody decided (closed after five working days)");
+    expect(askState("dismissed", "gchat:Heena Ganotra")).toBe("No card, decided by Heena Ganotra");
+    expect(askState("dismissed", "system:made_in_pulp")).toBe("No card");
+  });
+});

@@ -16,6 +16,12 @@ reminder, idea, rule or note; only a task is proposed, as a card in the feed thr
 their tap makes the Pulp card (To Do, assigned) and the PM Overview sheet row; every card on every department board is
 mirrored so Claude can answer about all of them; the 10:00 India post names what each person has to do today.
 
+## What changed on 2026-11-16
+
+- **`asks_without_card`, a new read tool in Claude** (5.3, `hub.ts`): what a client asked that has no card, per
+  client and window: still waiting for a decision, or closed after five working days with nobody deciding. Made to
+  answer Arun's question about October and November; the result of that check is in the chat of that day.
+
 ## What changed on 2026-11-13 (second session: three faults fixed)
 
 - **The sheet mirror stays inside Google's read limit** (3.7, `sheets.ts`, `sheet-sync.ts`). A run was about 85

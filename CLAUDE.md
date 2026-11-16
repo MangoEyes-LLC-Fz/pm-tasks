@@ -39,10 +39,10 @@ team's Claude accounts. Developed on branch `claude/mangowise-task-automation-3q
 
 ## Observing the live hub from a session
 
-The Task_Hub MCP connector (tools `hub_status`, `recent_messages`, `search_tasks`, `daily_summary`, …) is the window
+The Task_Hub MCP connector (tools `hub_status`, `recent_messages`, `search_tasks`, `asks_without_card`, `daily_summary`, …) is the window
 into the live database. `hub_status` shows every poll's last run, queue errors and stuck messages. `/api/health` is the
 same for a browser.
 
 ## Checks before pushing
 
-`npx tsc --noEmit` and `npx vitest run` (229 tests). Vercel deploys the branch in about two minutes.
+`npx tsc --noEmit` and `npx vitest run` (230 tests). Vercel deploys the branch in about two minutes.
