@@ -20,7 +20,9 @@ Last updated: 2026-11-12 (Neon was awake all night because the crons and the hea
   deciding was visible nowhere. Added `asks_without_card` (`asksWithoutCard` in `hub.ts`): task asks with status
   `proposed` or `expired` and no task row, per client and window, with `likelyCard` from the card match; "No card"
   answers only on request, because a person decided those. Read only, no model call, nothing posted. Built without
-  a separate go because the check Arun asked for could not be made without it.
+  a separate go because the check Arun asked for could not be made without it. `client_summary` carries the same
+  list for the last 60 days (`asksWithoutCard60d`): a session that connected before a deploy keeps its old tool list
+  and cannot call a tool added after it, but it can call the tools it already knows.
 - **2026-11-13, three faults fixed at the root (Arun: "fix everything right now"):**
   (1) *Sheet read quota.* `sheet_sync_last` showed "Quota exceeded … Read requests per minute per user" on the tabs
   last in the alphabet, every ten minutes. Cause: the fingerprint read every client tab (tab list + rows, two requests

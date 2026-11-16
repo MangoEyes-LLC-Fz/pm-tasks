@@ -67,7 +67,7 @@ function buildHandler(owner: McpKeyOwner) {
       }, async ({ id }) => text((await taskDetail(id)) ?? { error: "no such task" }));
 
       server.registerTool("client_summary", {
-        title: "Client summary", description: "One client at a glance: open, staging, overdue, waiting-on-client, done in 30 days, message volume, and the open task list.",
+        title: "Client summary", description: "One client at a glance: open, staging, overdue, waiting-on-client, done in 30 days, message volume, what the client asked in the last 60 days that has no card (asksWithoutCard60d), and the open task list.",
         inputSchema: z.object({ client: z.string() }),
       }, async ({ client }) => text((await clientSummary(client)) ?? { error: "no such client" }));
 

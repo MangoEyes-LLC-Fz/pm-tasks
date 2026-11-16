@@ -247,7 +247,9 @@ export async function clientSummary(ref: string): Promise<Record<string, unknown
            count(*) filter (where skip_reason = 'no_ask' and created_at > now() - interval '7 days')::int as updates_no_task_last_7_days
     from messages where client_id = ${id} and created_at > now() - interval '30 days'`)[0];
   const open = await searchTasks({ client: id, status: "open", limit: 25 });
-  return { client: { id: c.id, name: c.name, scope: c.scope, aliases: c.aliases ?? [], sheetTab: c.sheetTab ?? null }, ...counts, ...msgs, openTasks: open };
+  // What the client asked that has no card, last 60 days (2026-11-16): the summary of a client must not hide it.
+  const noCard = await asksWithoutCard({ client: id, days: 60, limit: 150 });
+  return { client: { id: c.id, name: c.name, scope: c.scope, aliases: c.aliases ?? [], sheetTab: c.sheetTab ?? null }, ...counts, ...msgs, asksWithoutCard60d: noCard, openTasks: open };
 }
 
 export async function recentMessages(q: Window & { client?: string | null; channel?: string | null; limit?: number | null; includeSkipped?: boolean }) {
