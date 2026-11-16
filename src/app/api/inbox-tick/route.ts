@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cronAuthorized } from "@/lib/auth";
+import { skipQuietCron } from "@/lib/quiet-hours";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export const maxDuration = 120; // a round can transcribe a voice note and run t
  */
 export async function GET(req: Request) {
   if (!cronAuthorized(req)) return new NextResponse("unauthorized", { status: 401 });
+  if (skipQuietCron(new Date())) return NextResponse.json({ ok: true, skipped: "quiet" });
   const { inboxConfigured, pollInbox } = await import("@/lib/chat-inbox");
   if (!inboxConfigured()) return NextResponse.json({ ok: true, inbox: "not configured" });
   const rounds: unknown[] = [];

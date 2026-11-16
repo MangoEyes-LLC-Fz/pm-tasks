@@ -11,10 +11,11 @@ Entries below are dated; a later entry supersedes an earlier one (for example th
 nudges described in older entries are gone: Drop space and 20 min / 1 h / 1 day / daily reminders since 2026-09-15).
 Keep it updated with every change.
 
-Last updated: 2026-11-12 (Neon was awake all night because the crons and the health check queried Postgres even when nothing had changed; the quiet path now stays out of the database. 6 Oct: group mail dropped as bulk, fixed; 5 Oct: meeting client with certainty only, the repair of past meetings; 23 Sep: board mirror, cards from Claude made at once, Remind me on; 22 Sep: five kinds, the proposal card, reminders, Monday ideas, the 10:00 Today brief; 21 Sep: no Slack reactions; 18 Sep: PMs board rules, short headlines, Vercel cost, `main` branch; `CLAUDE.md` is the entry point).
+Last updated: 2026-11-16 (outside Monday to Friday 11:00 to 22:30 IST the three minute crons return before Postgres except every 15 minutes, so Neon can suspend. 13 Nov: sheet quota, Monday ideas, team mail client. 12 Nov: Neon was awake all night because the crons and the health check queried Postgres even when nothing had changed. 6 Oct: group mail dropped as bulk, fixed; 5 Oct: meeting client with certainty only; `CLAUDE.md` is the entry point).
 
 ## Decisions finalised
 
+- **2026-11-16, the database may suspend outside work hours:** The 12 Nov quiet path still opened Postgres on every cron (schema check, Pulp poll, reminders, heartbeat), so Neon never got five idle minutes and the Launch compute stayed at 0.25 CU day and night, about $20 a month. Decided: Monday to Friday 11:00 to 22:30 IST (05:30 to 17:00 UTC) the three crons behave exactly as they do now. Outside that window, including all of Saturday and Sunday, `/api/tick`, `/api/inbox-tick` and `/api/meet-tick` return before any Postgres call and before any runtime-cache read that falls back to Postgres, except when the UTC minute is :00, :15, :30 or :45. `/api/eod` is unchanged (04:30 UTC, Monday to Friday, 10:00 IST). That minute is outside the new work window, and so is the Gmail daily requeue (`getUTCHours() === 4 && getUTCMinutes() >= 30`). Both still run: eod is its own cron, and the tick still enters at 04:30 and 04:45 UTC, which is the requeue and the first catch-up after 10:05 IST. Reminders due inside work hours still post on the minute. A reminder, a Drop message, a mail or a meeting note outside work hours waits at most 15 minutes. The window is `src/lib/quiet-hours.ts`. `QUIET_START_UTC` and `QUIET_END_UTC` (`HH:MM`, default `17:00` and `05:30`) move the clock. Weekends stay outside either way. Health and the 10:00 brief allow a heartbeat of 20 minutes outside work hours, so a 15-minute gap is not reported as a stopped reader. Expected saving: about two-fifths of the compute, roughly $8 a month off the $20, because a query every 15 minutes lets Neon suspend for about ten minutes of each quarter-hour.
 - **2026-11-13, three faults fixed at the root (Arun: "fix everything right now"):**
   (1) *Sheet read quota.* `sheet_sync_last` showed "Quota exceeded … Read requests per minute per user" on the tabs
   last in the alphabet, every ten minutes. Cause: the fingerprint read every client tab (tab list + rows, two requests
@@ -525,7 +526,8 @@ Optional, with defaults: `LLM_MODEL` (claude-sonnet-5), `LLM_MODEL_MATCH` (claud
 `GCHAT_ENDPOINT_URL`, `GCHAT_INTAKE_SPACE` (retired space), `PM_SHEET_CONFIG_TAB` (Config), `PULP_BASE_URL`,
 `STAFF_EMAIL_DOMAINS` (mangoeyesagency.com), `STAFF_EMAILS`, `VOICE_BUCKET`, `VOICE_BUCKET_LOCATION`, `SPEECH_V2` (off = v1 engine only), `SPEECH_V2_TRIES`,
 `SLACK_BOT_TOKEN` (fallback only), `SLACK_REVIEW_CHANNEL`, `SLACK_INTAKE_CHANNEL`, `SLACK_P1_CHANNEL`,
-`RAW_RETENTION_DAYS` (0 = keep everything), `INTAKE_PAUSED` (the kill switch).
+`RAW_RETENTION_DAYS` (0 = keep everything), `INTAKE_PAUSED` (the kill switch),
+`QUIET_START_UTC` / `QUIET_END_UTC` (default `17:00` / `05:30`; outside Monday to Friday 11:00 to 22:30 IST the minute crons run every 15 minutes).
 
 ## Useful commands (replace the secret with the real CRON_SECRET)
 

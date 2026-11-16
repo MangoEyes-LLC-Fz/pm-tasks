@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cronAuthorized } from "@/lib/auth";
+import { skipQuietCron } from "@/lib/quiet-hours";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export const maxDuration = 120;
  */
 export async function GET(req: Request) {
   if (!cronAuthorized(req)) return new NextResponse("unauthorized", { status: 401 });
+  if (skipQuietCron(new Date())) return NextResponse.json({ ok: true, skipped: "quiet" });
   const { meetConfigured, pollMeetings } = await import("@/lib/meet");
   if (!meetConfigured()) return NextResponse.json({ ok: true, meetings: "not configured" });
   try { return NextResponse.json({ ok: true, meetings: await pollMeetings() }); }

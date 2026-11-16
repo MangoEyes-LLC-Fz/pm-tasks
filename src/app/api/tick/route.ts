@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cronAuthorized } from "@/lib/auth";
+import { skipQuietCron } from "@/lib/quiet-hours";
 import { sql, upsertClient, enqueue } from "@/lib/db";
 import { clearWatchdog, configFresh, dropWatch, expireMust, expireState, gmailDayDue, hashJson, idleOn, mustQuery, noteBeat, queueGate, rememberConfig, rememberExpire, rememberGmailDay, rememberQueue, saveQueueErrors, sheetDigestCached, rememberSheetDigest, watchdogMust, watchdogState } from "@/lib/idle";
 import { workingDaysFrom } from "@/lib/when";
@@ -19,6 +20,9 @@ export const maxDuration = 120; // a round that reads meeting notes (model call,
  */
 export async function GET(req: Request) {
   if (!cronAuthorized(req)) return new NextResponse("unauthorized", { status: 401 });
+  // Outside Monday to Friday 11:00 to 22:30 IST, run only on :00/:15/:30/:45 so Neon can suspend.
+  // 04:30 and 04:45 UTC are among those marks (Gmail requeue, morning catch-up).
+  if (skipQuietCron(new Date())) return NextResponse.json({ ok: true, skipped: "quiet" });
   const report: Record<string, unknown> = {};
   const started = Date.now();
   const elapsed = () => Date.now() - started;

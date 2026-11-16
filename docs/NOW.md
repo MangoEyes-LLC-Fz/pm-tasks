@@ -1,6 +1,6 @@
 # Where the hub is today
 
-**Updated 2026-11-13.** This page is the first thing a new session reads: what is live, what
+**Updated 2026-11-16.** This page is the first thing a new session reads: what is live, what
 changed last, what is being watched, what waits on Arun, and how to see the live hub. It is rewritten at the end of
 every working session; the history behind every line is in `docs/STATE.md` (dated decisions) and `git log`.
 
@@ -15,6 +15,10 @@ clientsuccess.team@ in To or Cc), client Slack channels and Google Meet notes; e
 reminder, idea, rule or note; only a task is proposed, as a card in the feed thread addressed to a person, and only
 their tap makes the Pulp card (To Do, assigned) and the PM Overview sheet row; every card on every department board is
 mirrored so Claude can answer about all of them; the 10:00 India post names what each person has to do today.
+
+## What changed on 2026-11-16
+
+**The database can suspend outside work hours** (`src/lib/quiet-hours.ts`). The 12 Nov path still touched Postgres on every cron, so Neon never slept. Monday to Friday 11:00 to 22:30 IST (05:30 to 17:00 UTC) the three crons are unchanged. Outside that, including Saturday and Sunday, `/api/tick`, `/api/inbox-tick` and `/api/meet-tick` return `{ skipped: "quiet" }` before any database call unless the UTC minute is :00, :15, :30 or :45. `/api/eod` is not gated. 04:30 and 04:45 UTC still enter the tick, so the Gmail requeue and the morning catch-up still run. Health and the 10:00 brief allow a 20-minute heartbeat outside those hours. `QUIET_START_UTC` and `QUIET_END_UTC` move the clock. Expected saving about $8 a month off the $20, if nights stay quiet. Trade-off: overnight and all weekend, pickup waits up to 15 minutes.
 
 ## What changed on 2026-11-13 (second session: three faults fixed)
 
@@ -84,6 +88,7 @@ hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
 
+- After this deploys: a quiet night and a Saturday show Neon suspended for stretches of about ten minutes, not 0.25 CU the whole time. A skipped cron returns `skipped: "quiet"`. Weekday 11:00 to 22:30 IST still polls every minute. The Tuesday 10:00 IST post still appears. A Drop message or reminder inside those hours is not delayed. One sent after 22:30 waits until the next :00, :15, :30 or :45.
 - The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"). Sheet: proven, the 12:30 UTC run read 16
   tabs with no errors (before: quota errors on six tabs every run). Mail: 10 mails waited on a client after the first
   deploy; the second look (12:44 UTC) filed 9 of 11 under Leicester MediSpa by their conversation and two asks from

@@ -7,6 +7,7 @@
 import { sql } from "./db";
 import { allBeats, overlayPolls } from "./idle";
 import { pulp } from "./pulp";
+import { heartbeatLimit } from "./quiet-hours";
 import { mention } from "./reminders-util";
 import { whenLabel } from "./when";
 
@@ -106,14 +107,16 @@ export async function collectBrief(now = new Date()): Promise<BriefData> {
   const polls = overlayPolls(await sql()`select key, value from settings where key in ('gmail_poll_last','chat_inbox_last','meet_poll_last','pulp_poll_last','sheet_cards_last','board_mirror_last','tick_last')`, await allBeats());
   const names: Record<string, string> = { gmail_poll_last: "Mailbox", chat_inbox_last: "Task Hub Drop", meet_poll_last: "Meet notes", pulp_poll_last: "Pulp", sheet_cards_last: "Sheet cards", board_mirror_last: "Boards" };
   const limitMin: Record<string, number> = { gmail_poll_last: 5, chat_inbox_last: 5, meet_poll_last: 20, pulp_poll_last: 5, sheet_cards_last: 5, board_mirror_last: 20 };
+  // Outside work hours the crons run every 15 minutes, so a 15-minute-old heartbeat is not an issue.
+  const allowed = (mins: number) => heartbeatLimit(mins * 60, now) / 60;
   for (const key of Object.keys(names)) if (!polls.some((p) => p.key === key)) issues.push(`${names[key]} has never run`);
   for (const p of polls) {
-    if (p.key === "tick_last") { const age = (Date.now() - new Date(String(p.value)).getTime()) / 60000; if (age > 5) issues.push(`The minute loop last ran ${Math.round(age)} min ago`); continue; }
+    if (p.key === "tick_last") { const age = (Date.now() - new Date(String(p.value)).getTime()) / 60000; if (age > allowed(5)) issues.push(`The minute loop last ran ${Math.round(age)} min ago`); continue; }
     const v = p.value as { errors?: string[]; at?: string } | null;
     const errs = v?.errors ?? [];
     if (errs.length) issues.push(`${names[String(p.key)]} read failed: ${clip(String(errs[0]), 90)}`);
     const age = v?.at ? (Date.now() - new Date(v.at).getTime()) / 60000 : Infinity;
-    if (age > (limitMin[String(p.key)] ?? 60)) issues.push(`${names[String(p.key)]} last ran ${age === Infinity ? "never" : `${Math.round(age)} min ago`}`);
+    if (age > allowed(limitMin[String(p.key)] ?? 60)) issues.push(`${names[String(p.key)]} last ran ${age === Infinity ? "never" : `${Math.round(age)} min ago`}`);
   }
 
   return { day, waiting, overdue, yesterday: { created: Number(y.created), done: Number(y.done), noCard: Number(y.no_card), reminders: Number(y.reminders) }, issues };
