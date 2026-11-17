@@ -1,9 +1,11 @@
 /**
  * What the schedulers remember outside Postgres, so a quiet minute does not wake Neon.
  *
- * Neon suspends about five minutes after the last query. The crons still run on their
- * existing schedules (mail and Drop stay prompt, reminders fire at the minute they are
- * due). On Vercel the memory is the Runtime Cache, shared by every function in the
+ * Neon suspends about five minutes after the last query. Monday to Friday 11:00 to
+ * 22:30 IST the crons still run on their existing schedules (mail and Drop stay prompt,
+ * reminders fire at the minute they are due). Outside that, including Saturday and
+ * Sunday, they run only every 15 minutes and return before any database call
+ * (src/lib/quiet-hours.ts). On Vercel the memory is the Runtime Cache, shared by every function in the
  * region and not a database. Where that cache is not available, every check falls
  * through to Postgres, which is the previous behaviour.
  *
@@ -13,6 +15,7 @@
  * enough for the compute to suspend in between.
  */
 import { createHash } from "node:crypto";
+import { heartbeatLimit } from "./quiet-hours";
 import { MORNING_HOUR, teamParts, teamTime } from "./when";
 
 const TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -216,10 +219,11 @@ export const READER_LIMITS: Array<[BeatName, number, string]> = [
 export function staleReaders(beats: Partial<Record<BeatName, Beat>>, now: Date): string[] {
   const stale: string[] = [];
   for (const [name, limit, label] of READER_LIMITS) {
+    const cap = heartbeatLimit(limit, now);
     const at = beats[name]?.at;
     if (!at) { stale.push(`${label}: never ran`); continue; }
     const age = Math.round((now.getTime() - Date.parse(at)) / 1000);
-    if (age > limit) stale.push(`${label}: ${Math.round(age / 60)} min ago`);
+    if (age > cap) stale.push(`${label}: ${Math.round(age / 60)} min ago`);
   }
   return stale;
 }

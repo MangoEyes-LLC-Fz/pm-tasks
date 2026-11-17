@@ -18,6 +18,8 @@ mirrored so Claude can answer about all of them; the 10:00 India post names what
 
 ## What changed on 2026-11-16
 
+**The database can suspend outside work hours** (`src/lib/quiet-hours.ts`). The 12 Nov path still touched Postgres on every cron, so Neon never slept. Monday to Friday 11:00 to 22:30 IST (05:30 to 17:00 UTC) the three crons are unchanged. Outside that, including Saturday and Sunday, `/api/tick`, `/api/inbox-tick` and `/api/meet-tick` return `{ skipped: "quiet" }` before any database call unless the UTC minute is :00, :15, :30 or :45. `/api/eod` is not gated. 04:30 and 04:45 UTC still enter the tick, so the Gmail requeue and the morning catch-up still run. Health and the 10:00 brief allow a 20-minute heartbeat outside those hours. `QUIET_START_UTC` and `QUIET_END_UTC` move the clock. Expected saving about $8 a month off the $20, if nights stay quiet. Trade-off: overnight and all weekend, pickup waits up to 15 minutes.
+
 - **`asks_without_card`, a new read tool in Claude** (5.3, `hub.ts`): what a client asked that has no card, per
   client and window: still waiting for a decision, or closed after five working days with nobody deciding. Made to
   answer Arun's question about October and November. `client_summary` carries the same list for 60 days.
@@ -95,11 +97,11 @@ hits Postgres as before.
 
 ## Being watched (proofs that need real traffic)
 
+- After this deploys: a quiet night and a Saturday show Neon suspended for stretches of about ten minutes, not 0.25 CU the whole time. A skipped cron returns `skipped: "quiet"`. Weekday 11:00 to 22:30 IST still polls every minute. The Tuesday 10:00 IST post still appears. A Drop message or reminder inside those hours is not delayed. One sent after 22:30 waits until the next :00, :15, :30 or :45.
 - Checked 16 Nov, 12:30 UTC: every poll current, no queue errors, no stuck messages. Sheet: 16 tabs, no errors.
   Mail: none waiting on a client. Monday's ideas: 25 cards posted, 116 kept on record, no errors; the last thing to
   see is no ideas post on Tuesday 17 Nov. The card match's question was answered in the feed by a person that
   morning ("No, different"), so the live question path works on real traffic. The 10:00 post listed 98 waiting.
-
 - The three fixes of 13 Nov (SOAK, "Watch after the 2026-11-13 fixes"). Sheet: proven, the 12:30 UTC run read 16
   tabs with no errors (before: quota errors on six tabs every run). Mail: 10 mails waited on a client after the first
   deploy; the second look (12:44 UTC) filed 9 of 11 under Leicester MediSpa by their conversation and two asks from

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql, databaseUrl } from "@/lib/db";
 import { allBeats, idleOn, overlayPolls, POLL_KEYS, queueErrorsCached, READER_LIMITS, staleReaders, type BeatName } from "@/lib/idle";
+import { heartbeatLimit } from "@/lib/quiet-hours";
 import { pulp } from "@/lib/pulp";
 import { sheetsConfigured } from "@/lib/sheets";
 import { env } from "@/lib/config";
@@ -12,6 +13,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  const now = new Date();
   const deep = new URL(req.url).searchParams.get("deep") === "1";
   const out: Record<string, unknown> = { model: env.model(), reviewMode: reviewMode(), gchat: gchatConfigured(), gmail: gmailConfigured(), gmailMailbox: process.env.GMAIL_MAILBOX ?? null, pulp: pulp.configured(), sheets: sheetsConfigured(), slackAppConfigured: !!process.env.SLACK_SIGNING_SECRET && !!process.env.SLACK_CLIENT_ID && !!process.env.SLACK_CLIENT_SECRET, intakePaused: env.intakePaused(), cronSecretSet: !!process.env.CRON_SECRET, cronSecretHint: process.env.CRON_SECRET ? `${process.env.CRON_SECRET.trim().slice(0,4)}…(${process.env.CRON_SECRET.trim().length})` : null, dbUrlSet: !!databaseUrl(), anthropicKeySet: !!process.env.ANTHROPIC_API_KEY };
   // The uptime monitor hits this URL with no query. On Vercel that answer comes from the runtime cache, not Postgres,
@@ -21,13 +23,13 @@ export async function GET(req: Request) {
     const tick = beats.tick;
     const tickLast = tick?.at ?? null;
     const tickAgeSeconds = tickLast ? Math.round((Date.now() - Date.parse(tickLast)) / 1000) : null;
-    const stale = staleReaders(beats, new Date());
+    const stale = staleReaders(beats, now);
     const polls = overlayPolls([], beats);
     const value = (name: BeatName) => polls.find((p) => p.key === POLL_KEYS[name])?.value ?? null;
     out.tickLast = tickLast;
     out.tickAgeSeconds = tickAgeSeconds;
     out.stale = stale;
-    out.ok = !!tickLast && (tickAgeSeconds as number) < 300 && stale.length === 0;
+    out.ok = !!tickLast && (tickAgeSeconds as number) < heartbeatLimit(300, now) && stale.length === 0;
     out.chatInboxLast = value("inbox");
     out.gmailPollLast = value("gmail");
     out.pulpPollLast = value("pulp");
@@ -37,7 +39,7 @@ export async function GET(req: Request) {
     out.boardMirrorLast = value("board_mirror");
     out.queueErrors = (await queueErrorsCached()) ?? [];
     out.db = { ok: true, touched: false };
-    out.readerLimitsSeconds = Object.fromEntries(READER_LIMITS.map(([name, limit]) => [name, limit]));
+    out.readerLimitsSeconds = Object.fromEntries(READER_LIMITS.map(([name, limit]) => [name, heartbeatLimit(limit, now)]));
     return NextResponse.json(out, { status: out.ok === false ? 503 : 200 });
   }
   try {
@@ -53,9 +55,9 @@ export async function GET(req: Request) {
     const ageOf = (key: string) => { const v = last.find((x) => x.key === key)?.value as { at?: string } | string | undefined; const at = typeof v === "string" ? v : v?.at; return at ? Math.round((Date.now() - new Date(at).getTime()) / 1000) : null; };
     const stale: string[] = [];
     const limits: Array<[string, number, string]> = [["gmail_poll_last", 300, "mailbox"], ["chat_inbox_last", 300, "Task Hub Drop"], ["meet_poll_last", 1200, "Meet notes"], ["pulp_poll_last", 300, "Pulp"], ["sheet_cards_last", 300, "sheet cards"], ["board_mirror_last", 1200, "board mirror"]];
-    for (const [key, limit, name] of limits) { const age = ageOf(key); if (age === null || age > limit) stale.push(`${name}: ${age === null ? "never ran" : `${Math.round(age / 60)} min ago`}`); }
+    for (const [key, limit, name] of limits) { const age = ageOf(key); const cap = heartbeatLimit(limit, now); if (age === null || age > cap) stale.push(`${name}: ${age === null ? "never ran" : `${Math.round(age / 60)} min ago`}`); }
     out.stale = stale;
-    out.ok = !!tickLast && (out.tickAgeSeconds as number) < 300 && stale.length === 0;
+    out.ok = !!tickLast && (out.tickAgeSeconds as number) < heartbeatLimit(300, now) && stale.length === 0;
     out.gchatLastEvent = last.find((x) => x.key === "gchat_last_event")?.value ?? null;
     out.pulpPollLast = last.find((x) => x.key === "pulp_poll_last")?.value ?? null;
     out.gmailPollLast = last.find((x) => x.key === "gmail_poll_last")?.value ?? null;

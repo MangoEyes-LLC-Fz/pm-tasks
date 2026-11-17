@@ -117,6 +117,10 @@ Each fix: change, push, wait for the deploy, re-run the failed check. Record the
 
 The schedules did not change. What changed is that a quiet run does not open Postgres. After the deploy, on a stretch with no mail, no Drop message, no Slack event and no reminder due: Neon compute for project `delicate-king-60816111` should suspend (not sit at 0.25 CU). The tick JSON should say `idleCache: "on"`. `/api/health` should stay `ok: true` with `db.touched: false`. A real Drop message, a real mail, a real Slack event, and a reminder whose time has come should still land in the feed on the same schedules as before. `hub_status` should show poll times from the last few minutes, not from the last database write.
 
+## Watch after the 2026-11-16 quiet hours
+
+Monday to Friday 11:00 to 22:30 IST, nothing about the schedule changes. Outside that, including Saturday and Sunday, `/api/tick`, `/api/inbox-tick` and `/api/meet-tick` should answer `{ skipped: "quiet" }` except on UTC :00, :15, :30 and :45, and those skipped runs must not show a new query on Neon. After a quiet night the compute for project `delicate-king-60816111` should have spent about ten minutes of each quarter-hour suspended. The 10:00 IST post on a weekday still appears (its own cron at 04:30 UTC). If that cron misses, the 04:45 UTC tick posts it. A reminder due at 14:00 IST still posts at 14:00. A Drop message sent at 23:10 IST waits until 23:15.
+
 ## Watch after the 2026-11-13 fixes
 
 - Sheet: `hub_status` → `sheet_sync_last.errors` empty on the runs after the deploy, with every client tab counted.
